@@ -516,130 +516,165 @@ end
         START(N)
         reg:clear()
     end)
-end
+end]]
 
-do TITLE("Create view")
-    local reg = arch.World()
+do
+	TITLE("Create view")
+	local reg = arch.World()
 
-    reg:view(A, B, C, D, E, F, G, H) -- register components
+	reg:query(A, B, C, D, E, F, G, H) -- register components
 
-    BENCH("View 1 component", function()
-        for i = 1, START(N) do
-            reg:view(A)
-        end
-    end)
+	BENCH("View 1 component", function()
+		for i = 1, START(N) do
+			reg:query(A)
+		end
+	end)
 
-    BENCH("View 4 component", function()
-        for i = 1, START(N) do
-            reg:view(A, B, C, D)
-        end
-    end)
+	BENCH("View 4 component", function()
+		for i = 1, START(N) do
+			reg:query(A, B, C, D)
+		end
+	end)
 end
 
 do
-    local function viewBench(reg: arch.World)
-        local function getExactSize(view: ecr.View<...any>): number
-            local i = 0
-            for _ in view do
-                i += 1
-            end
-            return i
-        end
+	local function viewBench(reg)
+		local function getExactSize(view): number
+			local i = 0
+			for _ in view do
+				i += 1
+			end
+			return i
+		end
 
-        BENCH("View 1 component", function()
-            local view = reg:view(A)
+		BENCH("View 1 component", function()
+			local view = reg:query(A)
 
-            START(getExactSize(view))
-            for entity, a in view do end
-        end)
+			START(getExactSize(view))
+			for entity, a in view do
+			end
+		end)
 
-        BENCH("View 2 components", function()
-            local view = reg:view(A, B)
+		BENCH("View 2 components", function()
+			local view = reg:query(A, B)
 
-            START(getExactSize(view))
-            for entity, a, b in view do end
-        end)
+			START(getExactSize(view))
+			for entity, a, b in view do
+			end
+		end)
 
-        BENCH("View 4 components", function()
-            local view = reg:view(A, B, C, D)
+		BENCH("View 4 components", function()
+			local view = reg:query(A, B, C, D)
 
-            START(getExactSize(view))
-            for entity, a, b, c, d in view do end
-        end)
+			START(getExactSize(view))
+			for entity, a, b, c, d in view do
+			end
+		end)
 
-        BENCH("View 8 components", function()
-            local view = reg:view(A, B, C, D, E, F, G, H)
+		BENCH("View 8 components", function()
+			local view = reg:query(A, B, C, D, E, F, G, H)
 
-            START(getExactSize(view))
-            for entity, a, b, c, d, e, f, g, h in view do end
-        end)
-    end
+			START(getExactSize(view))
+			for entity, a, b, c, d, e, f, g, h in view do
+			end
+		end)
+	end
 
-    do TITLE("View all entities with ordered components")
-        local reg = arch.World()
+	do
+		TITLE("View all entities with ordered components")
+		local reg = arch.World()
 
-        for i = 1, N do
-            local entity = reg:create()
-            reg:set(entity, A, true)
-            reg:set(entity, B, true)
-            reg:set(entity, C, true)
-            reg:set(entity, D, true)
-            reg:set(entity, E, true)
-            reg:set(entity, F, true)
-            reg:set(entity, G, true)
-            reg:set(entity, H, true)
-        end
+		for i = 1, N do
+			local entity = reg:create()
+			reg:set(entity, A, true)
+			reg:set(entity, B, true)
+			reg:set(entity, C, true)
+			reg:set(entity, D, true)
+			reg:set(entity, E, true)
+			reg:set(entity, F, true)
+			reg:set(entity, G, true)
+			reg:set(entity, H, true)
+		end
 
-        viewBench(reg)
-    end
+		viewBench(reg)
+	end
 
-    do TITLE("View all entities with random components (50% distr.)")
-        local reg = arch.World()
+	do
+		TITLE("View all entities with random components (50% distr.)")
+		local reg = arch.World()
 
-        local function flip() return math.random() > 0.5 end
+		local function flip()
+			return math.random() > 0.5
+		end
 
-        for i = 1, N do
-            local entity = reg:create()
-            if flip() then reg:set(entity, A, true) end
-            if flip() then reg:set(entity, B, true) end
-            if flip() then reg:set(entity, C, true) end
-            if flip() then reg:set(entity, D, true) end
-            if flip() then reg:set(entity, E, true) end
-            if flip() then reg:set(entity, F, true) end
-            if flip() then reg:set(entity, G, true) end
-            if flip() then reg:set(entity, H, true) end
-        end
+		for i = 1, N do
+			local entity = reg:create()
+			if flip() then reg:set(entity, A, true) end
+			if flip() then reg:set(entity, B, true) end
+			if flip() then reg:set(entity, C, true) end
+			if flip() then reg:set(entity, D, true) end
+			if flip() then reg:set(entity, E, true) end
+			if flip() then reg:set(entity, F, true) end
+			if flip() then reg:set(entity, G, true) end
+			if flip() then reg:set(entity, H, true) end
+		end
 
-        viewBench(reg)
-    end
+		viewBench(reg)
+	end
 
-    do TITLE("View all entities with common component (50% distr.)")
-        -- 7 components are randomly assigned to entities,
-        -- any entities that receive all 7 will be tagged with an 8th component.
-        -- This guarantees that when iterating over this 8th component, all
-        -- entities iterated will also contain the other 7.
+	do
+		TITLE("View all entities with common component (50% distr.)")
+		-- 7 components are randomly assigned to entities,
+		-- any entities that receive all 7 will be tagged with an 8th component.
+		-- This guarantees that when iterating over this 8th component, all
+		-- entities iterated will also contain the other 7.
 
-        local reg = arch.World()
+		local reg = arch.World()
 
-        local function flip() return math.random() > 0.5 end
+		local function flip()
+			return math.random() > 0.5
+		end
 
-        for i = 1, N do
-            local entity = reg:create()
-            local b, c, d, e, f, g, h
-            if flip() then b=true; reg:set(entity, B, true) end
-            if flip() then c=true; reg:set(entity, C, true) end
-            if flip() then d=true; reg:set(entity, D, true) end
-            if flip() then e=true; reg:set(entity, E, true) end
-            if flip() then f=true; reg:set(entity, F, true) end
-            if flip() then g=true; reg:set(entity, G, true) end
-            if flip() then h=true; reg:set(entity, H, true) end
-            if b and c and d and e and f and g and h then reg:set(entity, A, true) end
-        end
+		for i = 1, N do
+			local entity = reg:create()
+			local b, c, d, e, f, g, h
+			if flip() then
+				b = true
+				reg:set(entity, B, true)
+			end
+			if flip() then
+				c = true
+				reg:set(entity, C, true)
+			end
+			if flip() then
+				d = true
+				reg:set(entity, D, true)
+			end
+			if flip() then
+				e = true
+				reg:set(entity, E, true)
+			end
+			if flip() then
+				f = true
+				reg:set(entity, F, true)
+			end
+			if flip() then
+				g = true
+				reg:set(entity, G, true)
+			end
+			if flip() then
+				h = true
+				reg:set(entity, H, true)
+			end
+			if b and c and d and e and f and g and h then
+				reg:set(entity, A, true)
+			end
+		end
 
-        viewBench(reg)
-    end
+		viewBench(reg)
+	end
 
-    do TITLE("View tags")
+	--[[do TITLE("View tags")
         local reg = arch.World()
 
         for i = 1, N do
@@ -649,15 +684,15 @@ do
 
         BENCH("View 1 tag", function()
             START(N)
-            for id, a in reg:view(TA) do end
+            for id, a in reg:query(TA) do end
         end)
 
         BENCH("View 4 tag", function()
             START(N)
-            for id, a, b, c, d in reg:view(TA, TB, TC, TD) do end
+            for id, a, b, c, d in reg:query(TA, TB, TC, TD) do end
         end)
-    end
-end]]
+    end]]
+end
 
 --[[do TITLE ("Handles")
     local N2 = N/32
@@ -1077,13 +1112,13 @@ end]]
 	end)
 
 	BENCH("Add tag ~4k entities", function()
-		for id, health in world:view(Health) do
+		for id, health in world:query(Health) do
 			if health <= 0 then world:add(id, Dead) end
 		end
 	end)
 
 	BENCH("Destroy ~4k entities", function()
-		for id in world:view(Dead) do
+		for id in world:query(Dead) do
 			world:destroy(id)
 		end
 	end)

@@ -13,8 +13,7 @@ export type QueryImpl<T...> = {
 	__index: QueryImpl<T...>,
 	exclude: (Query<T...>, ...any) -> Query<T...>,
 	each: (Query<T...>) -> () -> (Entity, T...),
-	size: (Query<T...>) -> number,
-	__len: (Query<T...>) -> number,
+	_sort: (Query<T...>) -> (),
 	__iter: (Query<T...>) -> () -> (Entity, T...),
 }
 
@@ -23,6 +22,7 @@ export type Query<T...> = typeof(setmetatable(
 		_includes: Array<number>,
 		_excludes: Array<number>,
 		_includesOrder: Map<number, number>,
+		_sorted: boolean,
 	},
 	{} :: QueryImpl<T...>
 ))
@@ -32,8 +32,8 @@ export type Archetype = {
 	size: number,
 
 	values: Map<InternalComponent, Array<unknown>>,
-	index: Map<number, number>,
 
+	index: Map<number, number>,
 	sorted: { InternalComponent },
 	compatible: Map<Archetype, boolean>,
 	addArchetypes: { Archetype },
@@ -92,6 +92,7 @@ export type World = typeof(setmetatable(
 
 		_totalArchetypes: number,
 		_entities: Map<Entity, Archetype>,
+		_entityIndex: Map<Entity, number>,
 		_archetypes: ArchetypeIndex,
 		_components: Map<
 			InternalComponent,
@@ -103,19 +104,25 @@ export type World = typeof(setmetatable(
 	}
 ))
 
-local function get(index: number, component: number, archetype: Archetype)
+local function get(
+	world: World,
+	index: number,
+	component: number,
+	archetype: Archetype
+)
 	if archetype.values[component] == nil then return nil end
-	local archetypeIndex = archetype.index[index]
+	local archetypeIndex = world._entityIndex[index]
 	return archetype.values[component][archetypeIndex]
 end
 
 local function fastSet(
+	world: World,
 	index: number,
 	component: number,
 	archetype: Archetype,
 	value: unknown
 )
-	local archetypeIndex = archetype.index[index]
+	local archetypeIndex = world._entityIndex[index]
 	archetype.values[component][archetypeIndex] = value
 end
 
@@ -125,12 +132,11 @@ local function archetypeSwapAdd(
 	archetype: Archetype,
 	newArchetype: Archetype
 )
-	local archetypeIndex = archetype.index[index]
+	local archetypeIndex = world._entityIndex[index]
 
 	newArchetype.size += 1
 	local newArchetypeIndex = newArchetype.size
 	local newArchetypeValues = newArchetype.values
-	newArchetype.index[index] = newArchetypeIndex
 
 	for component, values in archetype.values do
 		newArchetypeValues[component][newArchetypeIndex] =
@@ -138,7 +144,9 @@ local function archetypeSwapAdd(
 		values[archetypeIndex] = nil
 	end
 
-	archetype.index[index] = nil
+	archetype.index[archetypeIndex] = nil
+	newArchetype.index[newArchetypeIndex] = index
+	world._entityIndex[index] = newArchetypeIndex
 	world._entities[index] = newArchetype
 end
 
@@ -148,18 +156,19 @@ local function archetypeSwapRemove(
 	archetype: Archetype,
 	newArchetype: Archetype
 )
-	local archetypeIndex = archetype.index[index]
+	local archetypeIndex = world._entityIndex[index]
 	newArchetype.size += 1
 	local newArchetypeIndex = newArchetype.size
 	local archetypeValues = archetype.values
-	newArchetype.index[index] = newArchetypeIndex
 
 	for component, values in newArchetype.values do
 		values[newArchetypeIndex] = archetypeValues[component][archetypeIndex]
 		archetypeValues[component][archetypeIndex] = nil
 	end
 
-	archetype.index[index] = nil
+	archetype.index[archetypeIndex] = nil
+	newArchetype.index[newArchetypeIndex] = index
+	world._entityIndex[index] = newArchetypeIndex
 	world._entities[index] = newArchetype
 end
 
@@ -180,6 +189,7 @@ function Query.new(world: World, ...)
 		_includes = components,
 		_excludes = {},
 		_includesOrder = order,
+		_sorted = false,
 
 		_world = world,
 	}, Query)
@@ -187,25 +197,15 @@ end
 
 function Query:each()
 	local world: World = self._world
-
-	table.sort(self._includes, function(a, b)
-		local componentA, componentB =
-			world._components[a] or {}, world._components[b] or {}
-		return #componentA < #componentB
-	end)
-
-	table.sort(self._excludes, function(a, b)
-		local componentA, componentB =
-			world._components[a] or {}, world._components[b] or {}
-		return #componentA > #componentB
-	end)
-
 	local main = world:_getArchetype(unpack(self._includes))
+
+	self:_sort()
 
 	local thread = coroutine.wrap(function()
 		local componentId = self._includes[1]
 
 		local archetypes = {}
+		local begin = {}
 
 		-- gets all valid archetypes
 		for _, archetype in world._components[componentId] do
@@ -235,16 +235,22 @@ function Query:each()
 
 				main.compatible[archetype] = valid
 				if not valid then continue end
+				table.insert(begin, 1, archetype.size)
 				table.insert(archetypes, 1, archetype)
 			elseif main.compatible[archetype] == true then
+				table.insert(begin, 1, archetype.size)
 				table.insert(archetypes, 1, archetype)
 			end
 		end
 
 		-- iterates over the archetypes that are valid
-		for _, archetype in archetypes do
+		for i, archetype in archetypes do
+			local archetypeIndex = archetype.index
+			local size = begin[i]
 			for index in archetype.values[componentId] do
-				--if ids[index] then continue end
+				if size < index then continue end
+				local id = archetypeIndex[index]
+
 				local tuple = table.create(#self._includes)
 
 				for component, i in self._includesOrder do
@@ -254,7 +260,7 @@ function Query:each()
 				--ids[index] = true
 
 				coroutine.yield(
-					Id.createId(index, world:_getCurrentEntityVersion(index)),
+					Id.createId(id, world:_getCurrentEntityVersion(id)),
 					unpack(tuple)
 				)
 			end
@@ -281,6 +287,25 @@ function Query:exclude(...)
 	return self
 end
 
+function Query:_sort()
+	if self._sorted then return end
+	local world: World = self._world
+
+	table.sort(self._includes, function(a, b)
+		local componentA, componentB =
+			world._components[a] or {}, world._components[b] or {}
+		return #componentA < #componentB
+	end)
+
+	table.sort(self._excludes, function(a, b)
+		local componentA, componentB =
+			world._components[a] or {}, world._components[b] or {}
+		return #componentA > #componentB
+	end)
+
+	self._sorted = true
+end
+
 Query.__iter = Query.each
 
 local World = {} :: WorldImpl
@@ -296,6 +321,7 @@ function World.new()
 
 		_totalArchetypes = 0,
 		_entities = {},
+		_entityIndex = {},
 		_archetypes = {},
 		_components = table.create(Components.count),
 	}, World) :: World
@@ -323,6 +349,8 @@ function World:create(id)
 	self.size += 1
 
 	self._entities[index] = self._archetypes.archetype
+	self._entityIndex[index] = 1
+	self._archetypes.archetype.index[1] = index
 	self._version[index] = version
 
 	return Id.createId(index, version)
@@ -377,7 +405,7 @@ function World:set(id, component, value)
 
 		archetypeSwapRemove(self, index, archetype, newArchetype)
 	elseif archetype.values[component] then
-		fastSet(index, component, archetype, value)
+		fastSet(self, index, component, archetype, value)
 	else
 		-- swap archetype
 		local newArchetype = archetype.addArchetypes[component]
@@ -388,7 +416,7 @@ function World:set(id, component, value)
 		end
 
 		archetypeSwapAdd(self, index, archetype, newArchetype)
-		fastSet(index, component, newArchetype, value)
+		fastSet(self, index, component, newArchetype, value)
 	end
 end
 
@@ -401,14 +429,10 @@ function World:get(id, ...)
 		error("invalid entity")
 	end
 
-	local archetypeIndex = archetype.index[index]
 	local a, b, c, d, e = ...
 
-	local function get(component, i)
-		if archetype.values[component] == nil then
-			error(`component #{i} does not exist on entity`)
-		end
-		local value = archetype.values[component][archetypeIndex]
+	local function safeGet(component, i)
+		local value = get(self, index, component, archetype)
 		if value == nil then
 			error(`component #{i} does not exist on entity`)
 		end
@@ -416,25 +440,25 @@ function World:get(id, ...)
 	end
 
 	if b == nil then
-		return get(a, 1)
+		return safeGet(a, 1)
 	elseif c == nil then
-		return get(a, 1), get(b, 2)
+		return safeGet(a, 1), safeGet(b, 2)
 	elseif d == nil then
-		return get(a, 1), get(b, 2), get(c, 3)
+		return safeGet(a, 1), safeGet(b, 2), safeGet(c, 3)
 	elseif e == nil then
-		return get(a, 1), get(b, 2), get(c, 3), get(d, 4)
+		return safeGet(a, 1), safeGet(b, 2), safeGet(c, 3), safeGet(d, 4)
 	else
 		local size = select("#", ...)
 		local tuple = table.create(size - 5)
 		for i = 6, select("#", size) do
 			local component = select(i, ...)
-			tuple[i - 5] = get(component, i)
+			tuple[i - 5] = safeGet(component, i)
 		end
-		return get(a, 1),
-			get(b, 2),
-			get(c, 3),
-			get(d, 4),
-			get(e, 5),
+		return safeGet(a, 1),
+			safeGet(b, 2),
+			safeGet(c, 3),
+			safeGet(d, 4),
+			safeGet(e, 5),
 			unpack(tuple)
 	end
 end
@@ -446,7 +470,7 @@ function World:try_get(id, component)
 	if archetype == nil then return nil end
 	if self:_isCurrentVersion(index, version) == false then return nil end
 
-	return get(index, component, archetype)
+	return get(self, index, component, archetype)
 end
 
 function World:has(id, ...)
@@ -518,6 +542,7 @@ function World:destroy(id)
 	end
 
 	version += 1
+	self._entityIndex[index] = nil
 	if version > Id.ID_MAX_VERSION then return end
 	self._version[index] = version
 	if version == Id.ID_MAX_VERSION then return end

@@ -593,9 +593,7 @@ TEST("registry:query()", function()
 		return next(t) == nil
 	end
 
-	local function getids(
-		view: ecr.View<...unknown>
-	): { [ecr.Entity]: { unknown } }
+	local function getids(view): {}
 		local cache = {}
 		local size = 0
 		for id, a, b, c, d in view do
@@ -632,14 +630,6 @@ TEST("registry:query()", function()
 		if has[C] then table.insert(Cs, id) end
 		if has[A] and has[B] and has[C] then table.insert(ABCs, id) end
 		if has[A] and has[B] and not has[C] then table.insert(ABnotCs, id) end
-	end
-
-	do
-		CASE("View size")
-		CHECK(#reg:query(A) == #As)
-		CHECK(#reg:query(B) == #Bs)
-		CHECK(#reg:query(A, B, C) >= #ABCs)
-		CHECK(#reg:query(A, B):exclude(C) >= #ABnotCs)
 	end
 
 	do
