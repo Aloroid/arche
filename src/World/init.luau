@@ -13,7 +13,7 @@ export type QueryImpl<T...> = {
 	__index: QueryImpl<T...>,
 	exclude: (Query<T...>, ...any) -> Query<T...>,
 	each: (Query<T...>) -> () -> (Entity, T...),
-	_sort: (Query<T...>) -> (),
+	_sort: (Query<T...>) -> Query<T...>,
 	__iter: (Query<T...>) -> () -> (Entity, T...),
 }
 
@@ -61,16 +61,22 @@ export type WorldImpl = {
 
 	-- reading
 	get: <T...>(World, id: Entity, T...) -> T...,
-	try_get: <T>(World, id: Entity, component: T) -> T,
+	tryGet: <T>(World, id: Entity, component: T) -> T,
 	has: (World, id: Entity, ...any) -> boolean,
 
 	-- writing
 	set: <T>(World, id: Entity, component: T, value: T) -> T,
-	--batch_sert: (World, id: Entity, ) -> (),
+	batchSet: (World, id: Entity, components: {}, values: {}) -> (),
 	remove: (World, id: Entity, component: any) -> (),
+	addArchetype: (
+		World,
+		id: Entity,
+		...any
+	) -> <T>(component: T, value: T) -> (), -- adds a archetype, it fucks with queries though
 	--patch: <T>(World, id: Entity, component: T, patch: (old: T) -> T?) -> (),
 
 	-- removing
+	clear: (World, ...any) -> (),
 
 	-- getting rid of
 	destroy: (World, id: Entity) -> (),
@@ -189,7 +195,6 @@ function Query.new(world: World, ...)
 		_includes = components,
 		_excludes = {},
 		_includesOrder = order,
-		_sorted = false,
 
 		_world = world,
 	}, Query)
@@ -197,9 +202,10 @@ end
 
 function Query:each()
 	local world: World = self._world
-	local main = world:_getArchetype(unpack(self._includes))
-
+	-- sorts the components so that we can get rid of archetypes as fast as possible
 	self:_sort()
+
+	local main = world:_getArchetype(unpack(self._includes))
 
 	local thread = coroutine.wrap(function()
 		local componentId = self._includes[1]
@@ -249,8 +255,8 @@ function Query:each()
 			local size = begin[i]
 			for index in archetype.values[componentId] do
 				if size < index then continue end
-				local id = archetypeIndex[index]
 
+				local id = archetypeIndex[index]
 				local tuple = table.create(#self._includes)
 
 				for component, i in self._includesOrder do
@@ -304,6 +310,7 @@ function Query:_sort()
 	end)
 
 	self._sorted = true
+	return self
 end
 
 Query.__iter = Query.each
@@ -420,6 +427,40 @@ function World:set(id, component, value)
 	end
 end
 
+--[[
+	Forcefully swaps a entity to a new archetype without setting any of the
+	values. This prevents archetype swaps but it really messes with queries.
+	In general, you should avoid this function unless a component is either
+	never gonna get queried for or you guarantee that all the components
+	are set.
+]]
+function World:addArchetype(id, ...)
+	local index, version = Id.idIndexVersion(id)
+	local archetype = self._entities[index]
+
+	assert(archetype ~= nil, "invalid entity")
+	assert(self:_isCurrentVersion(index, version), "invalid entity")
+
+	local current = archetype
+	for i = 1, select("#", ...) do
+		local component = select(i, ...)
+		if current.values[component] then continue end
+		local newArchetype = current.addArchetypes[component]
+		if newArchetype == nil then
+			newArchetype = self:_getArchetype(component, unpack(current.sorted))
+			current.addArchetypes[component] = newArchetype
+		end
+		current = newArchetype
+	end
+
+	archetypeSwapAdd(self, index, archetype, current)
+
+	return function(component, value)
+		fastSet(self, index, component, current, value)
+	end
+	--print("changed archetype to", unpack(current.sorted))
+end
+
 function World:get(id, ...)
 	local index, version = Id.idIndexVersion(id)
 	local archetype = self._entities[index]
@@ -463,7 +504,7 @@ function World:get(id, ...)
 	end
 end
 
-function World:try_get(id, component)
+function World:tryGet(id, component)
 	local index, version = Id.idIndexVersion(id)
 	local archetype = self._entities[index]
 
@@ -547,6 +588,22 @@ function World:destroy(id)
 	self._version[index] = version
 	if version == Id.ID_MAX_VERSION then return end
 	table.insert(self._free, index)
+end
+
+function World:clear(...)
+	local a = ...
+
+	if a == nil then
+		for index in self._entities do
+			local version = self:_getCurrentEntityVersion(index)
+			self:destroy(Id.createId(index, version))
+		end
+	else
+		for index in self._entities do
+			local version = self:_getCurrentEntityVersion(index)
+			self:remove(Id.createId(index, version), ...)
+		end
+	end
 end
 
 function World:_getArchetype(...)

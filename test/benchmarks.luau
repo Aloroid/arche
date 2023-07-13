@@ -231,6 +231,130 @@ do
 	end
 end
 
+do
+	TITLE("Fast Adding components")
+	local function setup()
+		local reg = arch.World()
+		local ids = table.create(N)
+		for i = 1, N do
+			ids[i] = reg:create()
+		end
+		return reg, ids
+	end
+
+	do
+		BENCH("Fast Set Call Add 1", function()
+			local reg, ids = setup()
+			local fastSets = table.create(N)
+			for i = 1, N do
+				fastSets[i] = reg:addArchetype(ids[i], A)
+			end
+			for i = 1, START(N) do
+				local fastSet = fastSets[i]
+				fastSet(A, true)
+			end
+		end)
+	end
+
+	do
+		BENCH("Fast Set Call Add 2", function()
+			local reg, ids = setup()
+			local fastSets = table.create(N)
+			for i = 1, N do
+				fastSets[i] = reg:addArchetype(ids[i], A, B)
+			end
+			for i = 1, START(N) do
+				local fastSet = fastSets[i]
+				fastSet(A, true)
+				fastSet(B, true)
+			end
+		end)
+	end
+
+	do
+		BENCH("Fast Set Call Add 4", function()
+			local reg, ids = setup()
+			local fastSets = table.create(N)
+			for i = 1, N do
+				fastSets[i] = reg:addArchetype(ids[i], A, B, C, D)
+			end
+			for i = 1, START(N) do
+				local fastSet = fastSets[i]
+				fastSet(A, true)
+				fastSet(B, true)
+				fastSet(C, true)
+				fastSet(D, true)
+			end
+		end)
+	end
+
+	do
+		BENCH("Swap archetype 1 component", function()
+			local reg, ids = setup()
+			for i = 1, START(N) do
+				reg:addArchetype(ids[i], A)
+			end
+		end)
+	end
+
+	do
+		BENCH("Swap archetype 2 components", function()
+			local reg, ids = setup()
+			for i = 1, START(N) do
+				reg:addArchetype(ids[i], A, B)
+			end
+		end)
+	end
+
+	do
+		BENCH("Swap archetype 4 components", function()
+			local reg, ids = setup()
+			for i = 1, START(N) do
+				reg:addArchetype(ids[i], A, B, C, D)
+			end
+		end)
+	end
+
+	do
+		BENCH("Adding 1 component", function()
+			local reg, ids = setup()
+			for i = 1, START(N) do
+				local e = ids[i]
+				local fastSet = reg:addArchetype(e, A)
+				fastSet(A, true)
+			end
+		end)
+	end
+
+	do
+		local reg, ids = setup()
+
+		BENCH("Adding 2 component", function()
+			for i = 1, START(N) do
+				local e = ids[i]
+				local fastSet = reg:addArchetype(e, A, B)
+				fastSet(A, true)
+				fastSet(B, true)
+			end
+		end)
+	end
+
+	do
+		local reg, ids = setup()
+
+		BENCH("Adding 4 component", function()
+			for i = 1, START(N) do
+				local e = ids[i]
+				local fastSet = reg:addArchetype(e, A, B, C, D)
+				fastSet(A, true)
+				fastSet(B, true)
+				fastSet(C, true)
+				fastSet(D, true)
+			end
+		end)
+	end
+end
+
 --[[do TITLE "Patching components"
     local function setup()
         local reg = arch.World()
@@ -369,13 +493,12 @@ do
 
 	BENCH("Try get component", function()
 		for i = 1, START(N) do
-			reg:try_get(ids[i], A)
+			reg:tryGet(ids[i], A)
 		end
 	end)
 end
 
 do
-	local N = 2 ^ 16
 	TITLE("Removing components")
 	local function setup()
 		local reg = arch.World()
@@ -395,8 +518,8 @@ do
 		return reg, ids
 	end
 
-	local reg, ids = setup()
 	BENCH("Attempt remove of non-existant component", function()
+		local reg, ids = setup()
 		for i = 1, N do
 			reg:remove(ids[i], A)
 		end
@@ -406,31 +529,31 @@ do
 		end
 	end)
 
-	local reg, ids = setup()
 	BENCH("Remove 1 component", function()
+		local reg, ids = setup()
 		for i = 1, START(N) do
 			reg:remove(ids[i], A)
 		end
 	end)
 
-	local reg, ids = setup()
 	BENCH("Remove 2 components", function()
+		local reg, ids = setup()
 		for i = 1, START(N) do
 			local e = ids[i]
 			reg:remove(e, A, B)
 		end
 	end)
 
-	local reg, ids = setup()
 	BENCH("Remove 4 components", function()
+		local reg, ids = setup()
 		for i = 1, START(N) do
 			local e = ids[i]
 			reg:remove(e, A, B, C, D)
 		end
 	end)
 
-	local reg, ids = setup()
 	BENCH("Remove 8 components", function()
+		local reg, ids = setup()
 		for i = 1, START(N) do
 			local e = ids[i]
 			reg:remove(e, A, B, C, D, E, F, G, H)
@@ -462,61 +585,64 @@ do
 	end)
 end
 
---[[do TITLE "Clear components"
-    local function setup()
-        local reg = arch.World()
-        local ids = table.create(N)
-        for i = 1, N do
-            local e = reg:create()
-            ids[i] = e
-            reg:set(e, A, true)
-            reg:set(e, B, true)
-            reg:set(e, C, true)
-            reg:set(e, D, true)
-            reg:set(e, E, true)
-            reg:set(e, F, true)
-            reg:set(e, G, true)
-            reg:set(e, H, true)
-        end
-        return reg, ids
-    end
+do
+	TITLE("Clear components")
+	local function setup()
+		local reg = arch.World()
+		local ids = table.create(N)
+		for i = 1, N do
+			local e = reg:create()
+			ids[i] = e
+			reg:set(e, A, true)
+			reg:set(e, B, true)
+			reg:set(e, C, true)
+			reg:set(e, D, true)
+			reg:set(e, E, true)
+			reg:set(e, F, true)
+			reg:set(e, G, true)
+			reg:set(e, H, true)
+		end
+		return reg, ids
+	end
 
-    BENCH("Clear 1 component", function()
-        local reg = setup()
+	BENCH("Clear 1 component", function()
+		local reg = setup()
 
-        START(N)
-        reg:clear(A)
-    end)
+		START(N)
+		reg:clear(A)
+	end)
 
-    BENCH("Clear 2 components", function()
-        local reg = setup()
+	BENCH("Clear 2 components", function()
+		local reg = setup()
 
-        START(N)
-        reg:clear(A, B)
-    end)
+		START(N)
+		reg:clear(A, B)
+	end)
 
-    BENCH("Clear 4 components", function()
-        local reg = setup()
+	BENCH("Clear 4 components", function()
+		local reg = setup()
 
-        START(N)
-        reg:clear(A, B, C, D)
-    end)
+		START(N)
+		reg:clear(A, B, C, D)
+	end)
 
-    BENCH("Clear 8 components", function()
-        local reg = setup()
+	BENCH("Clear 8 components", function()
+		local reg = setup()
 
-        START(N)
-        reg:clear(A, B, C, D, E, F, G, H)
-    end)
+		START(N)
+		reg:clear(A, B, C, D, E, F, G, H)
+	end)
 
-    BENCH("Clear all entities (no components)", function()
-        local reg = arch.World()
-        for i = 1, N do reg:create() end
+	BENCH("Clear all entities (no components)", function()
+		local reg = arch.World()
+		for i = 1, N do
+			reg:create()
+		end
 
-        START(N)
-        reg:clear()
-    end)
-end]]
+		START(N)
+		reg:clear()
+	end)
+end
 
 do
 	TITLE("Create view")
@@ -1060,7 +1186,7 @@ do TITLE "Queues"
     end
 end]]
 
---[[do
+do
 	TITLE("Practical tests")
 	local world = arch.World()
 
@@ -1075,20 +1201,11 @@ end]]
 	local function init()
 		for i = 1, 2 ^ 12 do -- ~4k
 			local id = world:create()
-			world:set(id, Position, i)
-			world:set(id, Velocity, i)
-			world:set(id, Health, 0)
+			local fastSet = world:addArchetype(id, Position, Velocity, Health)
+			fastSet(Position, i)
+			fastSet(Velocity, i)
+			fastSet(Health, 0)
 		end
-	end
-
-	do -- pre-alloc
-		init()
-
-		for id in world do
-			world:add(id, Dead)
-		end
-
-		world:clear()
 	end
 
 	BENCH("Create ~4k entities with 3 components", function()
@@ -1096,12 +1213,12 @@ end]]
 	end)
 
 	BENCH("Update position ~4k entities", function()
-		for id, pos, vel in world:group(Position, Velocity) do
+		for id, pos, vel in world:query(Position, Velocity) do
 			world:set(id, Position, pos + vel * 1 / 60)
 		end
 	end)
 
-	BENCH("Raw update position ~4k entities", function()
+	--[[BENCH("Raw update position ~4k entities", function()
 		local n = #world:group(Position, Velocity)
 		local positions = world:storage(Position).values
 		local velocities = world:storage(Velocity).values
@@ -1109,11 +1226,11 @@ end]]
 		for i = 1, n do
 			positions[i] = positions[i] + velocities[i] * 1 / 60
 		end
-	end)
+	end)]]
 
 	BENCH("Add tag ~4k entities", function()
 		for id, health in world:query(Health) do
-			if health <= 0 then world:add(id, Dead) end
+			if health <= 0 then world:set(id, Dead, true) end
 		end
 	end)
 
@@ -1122,7 +1239,7 @@ end]]
 			world:destroy(id)
 		end
 	end)
-end]]
+end
 
 -- attempt to repeat the same test above but with regular OOP instead of ECS
 -- this is just curiosity to see how ECS really fares against OOP in Luau

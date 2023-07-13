@@ -365,7 +365,7 @@ TEST("registry:set()", function()
 		do
 			CASE("Remove component")
 			reg:set(id, A, nil)
-			CHECK(reg:try_get(id, A) == nil)
+			CHECK(reg:tryGet(id, A) == nil)
 			CHECK(not reg:has(id, A))
 		end
 	end
