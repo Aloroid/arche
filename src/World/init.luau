@@ -1,667 +1,494 @@
 local Id = if game then require(script.Id) else require("src/World/Id") :: never
-local Components = if game
-	then require(script.Parent.Components)
-	else require("src/Components") :: never
 
 type Array<T> = { [number]: T }
 type Map<T, U> = { [T]: U }
 
-type Entity = number
-type InternalComponent = number
+type Entity<T = unknown> = number -- entities are components
+type EntityKey = number
+type EntityVersion = number
+type CType<T = unknown> = number
+type Index = number
 
-export type QueryImpl<T...> = {
-	__index: QueryImpl<T...>,
-	exclude: (Query<T...>, ...any) -> Query<T...>,
-	each: (Query<T...>) -> () -> (Entity, T...),
-	_sort: (Query<T...>) -> Query<T...>,
-	__iter: (Query<T...>) -> () -> (Entity, T...),
-}
+type Components = Map<CType, Array<Archetype>>
 
-export type Query<T...> = typeof(setmetatable(
-	{} :: {
-		_includes: Array<number>,
-		_excludes: Array<number>,
-		_includesOrder: Map<number, number>,
-		_sorted: boolean,
-	},
-	{} :: QueryImpl<T...>
-))
-
-export type Archetype = {
-	id: number,
+type Archetype = {
 	size: number,
 
-	values: Map<InternalComponent, Array<unknown>>,
+	values: Map<CType, Map<Index, unknown>>,
+	sorted: Array<CType>,
+	index: Array<CType>,
 
-	index: Map<number, number>,
-	sorted: { InternalComponent },
 	compatible: Map<Archetype, boolean>,
-	addArchetypes: { Archetype },
-	removeArchetypes: { Archetype },
+	fastAdd: Map<CType, Archetype>,
+	fastRemove: Map<CType, Archetype>,
 }
-
-export type ArchetypeIndex = {
+type ArchetypeIndex = {
 	archetype: Archetype?,
 	[number]: ArchetypeIndex,
 }
 
-export type WorldImpl = {
-	__index: WorldImpl,
+export type World = {
 
-	new: () -> World,
+	create: (World) -> number,
+	component: <T>(World, constructor: (() -> T)?) -> CType<T>,
+	contains: (World, id: Entity) -> (boolean, boolean),
+	current: (World, id: Entity) -> number,
 
-	-- entities
-	create: (World) -> Entity,
-	createAt: (World, id: number) -> Entity,
-	contains: (World, id: number) -> boolean,
-
-	-- querying
-	query: <T...>(World, T...) -> Query<T...>,
-	--track: <T...>(World, T...) -> Track<T...>,
-
-	-- reading
-	get: <T...>(World, id: Entity, T...) -> T...,
-	tryGet: <T>(World, id: Entity, component: T) -> T,
-	has: (World, id: Entity, ...any) -> boolean,
-
-	-- writing
-	set: <T>(World, id: Entity, component: T, value: T) -> T,
-	batchSet: (World, id: Entity, components: {}, values: {}) -> (),
-	remove: (World, id: Entity, component: any) -> (),
-	addArchetype: (
+	get: <A, B, C, D>(
 		World,
 		id: Entity,
-		...any
-	) -> <T>(component: T, value: T) -> (), -- adds a archetype, it fucks with queries though
-	--patch: <T>(World, id: Entity, component: T, patch: (old: T) -> T?) -> (),
-
-	-- removing
-	clear: (World, ...any) -> (),
-
-	-- getting rid of
+		CType<A>,
+		CType<B>?,
+		CType<C>?,
+		CType<D>?,
+		...CType
+	) -> (A, B, C, D), --FIXME: Need Roblox to implement a Partial type instead so this can be shortened
+	set: <T>(World, id: Entity, ctype: CType<T>, value: T?) -> T,
+	tryGet: <T>(World, id: Entity, ctype: CType<T>) -> T?,
+	has: (World, id: Entity, ...CType) -> boolean,
+	addArchetype: (World, id: Entity, ...CType) -> <T>(ctype: CType<T>, value: T) -> (),
+	remove: (World, id: Entity, ...CType) -> (),
 	destroy: (World, id: Entity) -> (),
-
-	-- internal
-	_getArchetype: (World, ...number) -> Archetype,
-	_isCurrentVersion: (World, index: number, version: number) -> boolean,
-	_setEntityVersion: (World, index: number, version: number) -> (),
-	_getCurrentEntityVersion: (World, index: number) -> number,
-	_getComponentIndex: (World, component: any, archetype: Archetype) -> (),
+	clear: (World, ...CType) -> (),
 }
 
-export type World = typeof(setmetatable(
-	{} :: {
+local createId = Id.createId
+local idKey = Id.idKey
+local idKeyVersion = Id.idKeyVersion
+local idVersion = Id.idVersion
+local idSwap = Id.idSwapKey
 
-		size: number,
-		_free: Array<number>,
-		_version: Array<number>,
+local INITIAL_ENTITY_VERSION = Id.INITIAL_ENTITY_VERSION
+local INVALID_ENTITY = Id.ID_INVALID_KEY
+local MAX_VERSION = Id.ID_MAX_VERSION
+local MAX_KEY = Id.ID_MAX_KEY
 
-		_totalArchetypes: number,
-		_entities: Map<Entity, Archetype>,
-		_entityIndex: Map<Entity, number>,
-		_archetypes: ArchetypeIndex,
-		_components: Map<
-			InternalComponent,
-			{ size: number, [number]: Archetype }
-		>,
-	},
-	{} :: {
-		__index: WorldImpl,
-	}
-))
-
-local function get(
-	world: World,
-	index: number,
-	component: number,
-	archetype: Archetype
-)
-	if archetype.values[component] == nil then return nil end
-	local archetypeIndex = world._entityIndex[index]
-	return archetype.values[component][archetypeIndex]
-end
-
-local function fastSet(
-	world: World,
-	index: number,
-	component: number,
-	archetype: Archetype,
-	value: unknown
-)
-	local archetypeIndex = world._entityIndex[index]
-	archetype.values[component][archetypeIndex] = value
-end
-
-local function archetypeSwapAdd(
-	world: World,
-	index: number,
-	archetype: Archetype,
-	newArchetype: Archetype
-)
-	local archetypeIndex = world._entityIndex[index]
-
-	newArchetype.size += 1
-	local newArchetypeIndex = newArchetype.size
-	local newArchetypeValues = newArchetype.values
-
-	for component, values in archetype.values do
-		newArchetypeValues[component][newArchetypeIndex] =
-			values[archetypeIndex]
-		values[archetypeIndex] = nil
+-- inlines better haha
+local function setValuesAndComponents(sorted: Array<CType>, components: Components, archetype)
+	local values = {}
+	for _, ctype in sorted do
+		values[ctype] = {}
+		components[ctype] = archetype
 	end
-
-	archetype.index[archetypeIndex] = nil
-	newArchetype.index[newArchetypeIndex] = index
-	world._entityIndex[index] = newArchetypeIndex
-	world._entities[index] = newArchetype
+	return values
 end
 
-local function archetypeSwapRemove(
-	world: World,
-	index: number,
-	archetype: Archetype,
-	newArchetype: Archetype
-)
-	local archetypeIndex = world._entityIndex[index]
-	newArchetype.size += 1
-	local newArchetypeIndex = newArchetype.size
-	local archetypeValues = archetype.values
-
-	for component, values in newArchetype.values do
-		values[newArchetypeIndex] = archetypeValues[component][archetypeIndex]
-		archetypeValues[component][archetypeIndex] = nil
-	end
-
-	archetype.index[archetypeIndex] = nil
-	newArchetype.index[newArchetypeIndex] = index
-	world._entityIndex[index] = newArchetypeIndex
-	world._entities[index] = newArchetype
-end
-
-local Query = {} :: QueryImpl<...any>
-Query.__index = Query
-
-function Query.new(world: World, ...)
-	local order = {}
-	local components = { ... }
-
-	for k, v in components do
-		if order[v] then error(`component #{k} already is included earlier`) end
-
-		order[v] = k
-	end
-
-	return setmetatable({
-		_includes = components,
-		_excludes = {},
-		_includesOrder = order,
-
-		_world = world,
-	}, Query)
-end
-
-function Query:each()
-	local world: World = self._world
-	-- sorts the components so that we can get rid of archetypes as fast as possible
-	self:_sort()
-
-	local main = world:_getArchetype(unpack(self._includes))
-
-	local thread = coroutine.wrap(function()
-		local componentId = self._includes[1]
-
-		local archetypes = {}
-		local begin = {}
-
-		-- gets all valid archetypes
-		for _, archetype in world._components[componentId] do
-			if main.compatible[archetype] == nil then
-				-- check if the archetype meets our requirements
-				local valid = true
-
-				-- check if it has all the included components
-				for _, component in self._includes do
-					if archetype.values[component] == nil then
-						valid = false
-						break
-					end
-				end
-
-				if not valid then
-					main.compatible[archetype] = false
-					continue
-				end
-				-- check if it has none of the excluded components
-				for _, component in self._excludes do
-					if archetype.values[component] ~= nil then
-						valid = false
-						break
-					end
-				end
-
-				main.compatible[archetype] = valid
-				if not valid then continue end
-				table.insert(begin, 1, archetype.size)
-				table.insert(archetypes, 1, archetype)
-			elseif main.compatible[archetype] == true then
-				table.insert(begin, 1, archetype.size)
-				table.insert(archetypes, 1, archetype)
-			end
-		end
-
-		-- iterates over the archetypes that are valid
-		for i, archetype in archetypes do
-			local archetypeIndex = archetype.index
-			local size = begin[i]
-			for index in archetype.values[componentId] do
-				if size < index then continue end
-
-				local id = archetypeIndex[index]
-				local tuple = table.create(#self._includes)
-
-				for component, i in self._includesOrder do
-					tuple[i] = archetype.values[component][index]
-				end
-
-				--ids[index] = true
-
-				coroutine.yield(
-					Id.createId(id, world:_getCurrentEntityVersion(id)),
-					unpack(tuple)
-				)
-			end
-		end
-
-		coroutine.yield(nil)
-	end)
-
-	return function()
-		return thread()
-	end
-end
-
-function Query:exclude(...)
-	for i = 1, select("#", ...) do
-		local component = select(i, ...)
-		if self._includesOrder[component] then
-			error(`component #{i} is already included`)
-		end
-
-		table.insert(self._excludes, component)
-	end
-
-	return self
-end
-
-function Query:_sort()
-	if self._sorted then return end
-	local world: World = self._world
-
-	table.sort(self._includes, function(a, b)
-		local componentA, componentB =
-			world._components[a] or {}, world._components[b] or {}
-		return #componentA < #componentB
-	end)
-
-	table.sort(self._excludes, function(a, b)
-		local componentA, componentB =
-			world._components[a] or {}, world._components[b] or {}
-		return #componentA > #componentB
-	end)
-
-	self._sorted = true
-	return self
-end
-
-Query.__iter = Query.each
-
-local World = {} :: WorldImpl
-World.__index = World
-
-function World.new()
-	local self = setmetatable({
-
+local function createArchetype(
+	archetypeIndex: ArchetypeIndex,
+	components: Components,
+	sorted: { CType }
+): (Archetype, ArchetypeIndex)
+	-- creates a new archetype
+	local archetype = {
 		size = 0,
-		_count = 0,
-		_free = {},
-		_version = {},
+		sorted = sorted,
+		index = {},
+		compatible = {},
+		fastAdd = {},
+		fastRemove = {},
+	}
 
-		_totalArchetypes = 0,
-		_entities = {},
-		_entityIndex = {},
-		_archetypes = {},
-		_components = table.create(Components.count),
-	}, World) :: World
+	archetype.values = setValuesAndComponents(sorted, components, archetype)
+	archetypeIndex.archetype = archetype
 
-	self:_getArchetype() -- converts the first archetype table into a archetype
-
-	return self
+	return archetype, archetypeIndex
 end
 
-function World:create(id)
-	assert(id == nil, "attempted to pass id? to :create. use :createAt instead")
-	local index, version = table.remove(self._free)
+local function findArchetype(current: ArchetypeIndex, components: Components, sorted: { CType })
+	local previous = nil
+	for _, ctype in sorted do
+		if previous == ctype then continue end
+		local archetypeIndex = current[ctype]
 
-	if index == nil then
-		repeat
-			self._count += 1
-		until self._entities[self._count] == nil
-
-		index = self._count
-		version = Id.INITIAL_ENTITY_VERSION
-	else
-		version = self._version[index]
-	end
-
-	self.size += 1
-
-	self._entities[index] = self._archetypes.archetype
-	self._entityIndex[index] = 1
-	self._archetypes.archetype.index[1] = index
-	self._version[index] = version
-
-	return Id.createId(index, version)
-end
-
-function World:createAt(id)
-	local index, version = Id.idIndexVersion(id)
-	assert(
-		index >= 1
-			and version >= 1
-			and index <= Id.ID_MAX_INDEX
-			and version <= Id.ID_MAX_VERSION,
-		"malformed id"
-	)
-
-	-- check if it doesn't exist already
-	assert(self._entities[index] == nil, "entity already exists")
-
-	self.size += 1
-
-	self._entities[index] = self._archetypes.archetype
-	self._version[index] = version
-
-	return id
-end
-
-function World:contains(id)
-	local index, version = Id.idIndexVersion(id)
-	return not not self._entities[index]
-		and self:_isCurrentVersion(index, version)
-end
-
-function World:set(id, component, value)
-	local index, version = Id.idIndexVersion(id)
-	local archetype = self._entities[index]
-
-	assert(archetype ~= nil, "invalid entity")
-	assert(self:_isCurrentVersion(index, version), "invalid entity")
-
-	if value == nil then
-		if archetype.values[component] == nil then return end
-
-		local newArchetype = archetype.removeArchetypes[component]
-
-		-- finds a new archetype by cloning the sorted table and removing
-		-- the component that is no longer necessary.
-		if newArchetype == nil then
-			local components = table.clone(archetype.sorted)
-			table.remove(components, table.find(components, component))
-			newArchetype = self:_getArchetype(unpack(components))
+		-- creates a new entry for a archetype index.
+		if archetypeIndex == nil then
+			archetypeIndex = {}
+			current[ctype] = archetypeIndex
 		end
 
-		archetypeSwapRemove(self, index, archetype, newArchetype)
-	elseif archetype.values[component] then
-		fastSet(self, index, component, archetype, value)
-	else
-		-- swap archetype
-		local newArchetype = archetype.addArchetypes[component]
-		if newArchetype == nil then
-			newArchetype =
-				self:_getArchetype(component, unpack(archetype.sorted))
-			archetype.addArchetypes[component] = newArchetype
-		end
-
-		archetypeSwapAdd(self, index, archetype, newArchetype)
-		fastSet(self, index, component, newArchetype, value)
+		previous = ctype
+		current = archetypeIndex
 	end
+	return current
 end
 
---[[
-	Forcefully swaps a entity to a new archetype without setting any of the
-	values. This prevents archetype swaps but it really messes with queries.
-	In general, you should avoid this function unless a component is either
-	never gonna get queried for or you guarantee that all the components
-	are set.
-]]
-function World:addArchetype(id, ...)
-	local index, version = Id.idIndexVersion(id)
-	local archetype = self._entities[index]
-
-	assert(archetype ~= nil, "invalid entity")
-	assert(self:_isCurrentVersion(index, version), "invalid entity")
-
-	local current = archetype
-	for i = 1, select("#", ...) do
-		local component = select(i, ...)
-		if current.values[component] then continue end
-		local newArchetype = current.addArchetypes[component]
-		if newArchetype == nil then
-			newArchetype = self:_getArchetype(component, unpack(current.sorted))
-			current.addArchetypes[component] = newArchetype
-		end
-		current = newArchetype
-	end
-
-	archetypeSwapAdd(self, index, archetype, current)
-
-	return function(component, value)
-		fastSet(self, index, component, current, value)
-	end
-	--print("changed archetype to", unpack(current.sorted))
-end
-
-function World:get(id, ...)
-	local index, version = Id.idIndexVersion(id)
-	local archetype = self._entities[index]
-
-	if archetype == nil then error("invalid entity") end
-	if self:_isCurrentVersion(index, version) == false then
-		error("invalid entity")
-	end
-
-	local a, b, c, d, e = ...
-
-	local function safeGet(component, i)
-		local value = get(self, index, component, archetype)
-		if value == nil then
-			error(`component #{i} does not exist on entity`)
-		end
-		return value
-	end
-
-	if b == nil then
-		return safeGet(a, 1)
-	elseif c == nil then
-		return safeGet(a, 1), safeGet(b, 2)
-	elseif d == nil then
-		return safeGet(a, 1), safeGet(b, 2), safeGet(c, 3)
-	elseif e == nil then
-		return safeGet(a, 1), safeGet(b, 2), safeGet(c, 3), safeGet(d, 4)
-	else
-		local size = select("#", ...)
-		local tuple = table.create(size - 5)
-		for i = 6, select("#", size) do
-			local component = select(i, ...)
-			tuple[i - 5] = safeGet(component, i)
-		end
-		return safeGet(a, 1),
-			safeGet(b, 2),
-			safeGet(c, 3),
-			safeGet(d, 4),
-			safeGet(e, 5),
-			unpack(tuple)
-	end
-end
-
-function World:tryGet(id, component)
-	local index, version = Id.idIndexVersion(id)
-	local archetype = self._entities[index]
-
-	if archetype == nil then return nil end
-	if self:_isCurrentVersion(index, version) == false then return nil end
-
-	return get(self, index, component, archetype)
-end
-
-function World:has(id, ...)
-	local index, version = Id.idIndexVersion(id)
-	local archetype = self._entities[index]
-
-	if archetype == nil then return false end
-	if self:_isCurrentVersion(index, version) == false then return false end
-
-	for i = 1, select("#", ...) do
-		local component = select(i, ...)
-		if archetype.values[component] == nil then return false end
-	end
-
-	return true
-end
-
-function World:remove(id, ...)
-	local index, version = Id.idIndexVersion(id)
-	local archetype = self._entities[index]
-
-	assert(archetype ~= nil, "invalid entity")
-	assert(self:_isCurrentVersion(index, version), "invalid entity")
-
-	local components
-	local newArchetype = archetype
-
-	for i = 1, select("#", ...) do
-		local component = select(i, ...)
-		if newArchetype.values[component] == nil then continue end
-		local removingArchetype = newArchetype.removeArchetypes[component]
-
-		if removingArchetype == nil then
-			if components == nil then components = newArchetype.sorted end
-			table.remove(components, table.find(components, component))
-			removingArchetype = self:_getArchetype(unpack(components))
-			newArchetype.removeArchetypes[component] = removingArchetype
-		end
-
-		newArchetype = removingArchetype
-	end
-
-	if newArchetype == archetype then return end
-
-	archetypeSwapRemove(self, index, archetype, newArchetype)
-end
-
-function World:query(...)
-	local a = ...
-
-	assert(a, "atleast one component must be provided")
-
-	return Query.new(self, ...)
-end
-
-function World:destroy(id)
-	local index, version = Id.idIndexVersion(id)
-	local archetype = self._entities[index]
-
-	assert(self:_isCurrentVersion(index, version), "invalid entity")
-	assert(archetype ~= nil, "invalid entity")
-
-	self.size -= 1
-	self._entities[index] = nil -- resets the archetype
-
-	-- gets rid of any values
-	for _, values in archetype.values do
-		values[index] = nil
-	end
-
-	version += 1
-	self._entityIndex[index] = nil
-	if version > Id.ID_MAX_VERSION then return end
-	self._version[index] = version
-	if version == Id.ID_MAX_VERSION then return end
-	table.insert(self._free, index)
-end
-
-function World:clear(...)
-	local a = ...
-
-	if a == nil then
-		for index in self._entities do
-			local version = self:_getCurrentEntityVersion(index)
-			self:destroy(Id.createId(index, version))
-		end
-	else
-		for index in self._entities do
-			local version = self:_getCurrentEntityVersion(index)
-			self:remove(Id.createId(index, version), ...)
-		end
-	end
-end
-
-function World:_getArchetype(...)
-	local sorted = { ... }
-
-	-- sorts the set of components so that we can get the same archetype
+-- getting archetypes is expensive! try to not use this function.
+-- now inlined!
+local function getArchetype(
+	components: Components,
+	storage: ArchetypeIndex,
+	ctypes: { CType }
+): (Archetype, ArchetypeIndex)
+	local sorted = ctypes
 	table.sort(sorted)
 
-	local current = self._archetypes
-	for _, component in sorted do
-		if current[component] == nil then current[component] = {} end
-		current = current[component]
-	end
+	local current = findArchetype(storage, components, sorted)
 
-	if current.archetype == nil then
-		local archetype = {
-			size = 0,
+	-- creates a new archetype
+	if current.archetype then return current.archetype, current end
+	local archetype, index = createArchetype(current, components, sorted)
+	return archetype, index
+end
 
-			values = {},
-			index = {},
+local function getNewArchetypeAdd(
+	components: Components,
+	storage: ArchetypeIndex,
+	archetype: Archetype,
+	...: CType
+): Archetype
+	local current = archetype
+	for i = 1, select("#", ...) do
+		local ctype: CType = select(i, ...)
 
-			compatible = {}, -- caches which archetypes are compatible
-
-			addArchetypes = {},
-			removeArchetypes = {},
-
-			sorted = sorted,
-		}
-
-		for i, component in sorted do
-			archetype.values[component] = {}
-			self._components[component] = self._components[component] or {}
-			table.insert(self._components[component], archetype)
+		local new = current.fastAdd[ctype]
+		if new == nil then
+			new = getArchetype(components, storage, { ctype, unpack(current.sorted) })
+			current.fastAdd[ctype] = new
 		end
 
-		current.archetype = archetype
+		current = new
 	end
 
-	return current.archetype
+	return current
 end
 
-function World:_isCurrentVersion(index, version)
-	local current = self._version[index] or 0
-	return current <= version
+local function getNewArchetypeRemove(
+	components: Components,
+	storage: ArchetypeIndex,
+	archetype: Archetype,
+	...: CType
+): Archetype
+	local current = archetype
+	for i = 1, select("#", ...) do
+		local ctype: CType = select(i, ...)
+
+		local new = current.fastRemove[ctype]
+		if current.values[ctype] == nil then
+			continue
+		elseif new == nil then -- slow :(
+			local cts = table.clone(current.sorted)
+			table.remove(cts, table.find(cts, ctype))
+			new = getArchetype(components, storage, cts)
+			current.fastRemove[ctype] = new
+		end
+
+		current = new
+	end
+
+	return current
 end
 
-function World:_setEntityVersion(index, version)
-	self._version[index] = version
+-- swaps a archetype
+local function swapArchetypeAdd(archetype: Archetype, newArchetype: Archetype, index: Index, id: Entity)
+	if archetype == newArchetype then return index end
+	newArchetype.size += 1
+
+	local newValues = newArchetype.values
+	local newIndex = newArchetype.size
+
+	for ctype, values in archetype.values do
+		newValues[ctype][newIndex] = values[index]
+	end
+
+	newArchetype.index[newIndex] = id
+	archetype.index[index] = nil
+	return newIndex
 end
 
-function World:_getCurrentEntityVersion(id)
-	local index = Id.idIndex(id)
-	return self._version[index]
+local function swapArchetypeRemove(archetype: Archetype, newArchetype: Archetype, index: Index, id: Entity)
+	if archetype == newArchetype then return index end
+	newArchetype.size += 1
+
+	local values = archetype.values
+	local newIndex = newArchetype.size
+
+	for ctype, newValues in newArchetype.values do
+		newValues[newIndex] = values[ctype][index]
+	end
+
+	newArchetype.index[newIndex] = id
+	archetype.index[index] = nil
+	return newIndex
 end
 
-function World:_getComponentIndex(component, archetype)
-	return archetype.values[component]
-		and self._components[component][archetype]
-end
+return function()
+	local components: Components = {}
+	local archetypes: ArchetypeIndex = {}
 
-return World
+	local entities: Map<EntityKey, Archetype> = {}
+	local indexes: Map<EntityKey, Index> = {}
+
+	local size = 0
+	local ctypes: Map<CType, () -> ()> = {}
+	local newest: Map<EntityKey, Entity> = {}
+	local free = INVALID_ENTITY
+
+	local World = {}
+	local default = getArchetype(components, archetypes, {})
+
+	local function contains(id: number)
+		local key = idKey(id)
+		return entities[key] and newest[key] == id, not not ctypes[key]
+	end
+
+	local function get<T>(index: Index, values: Map<CType, Map<Index, T>>, ctype: CType<T>)
+		return values[ctype] and values[ctype][index]
+	end
+
+	function World:create()
+		if free == INVALID_ENTITY then
+			assert(size < MAX_KEY, "max entities reached")
+			size += 1
+			local key = size
+			local id = createId(key, INITIAL_ENTITY_VERSION)
+
+			entities[key] = default
+			default.size += 1
+			default.index[default.size] = id
+			indexes[key] = default.size
+			newest[key] = id
+
+			return id
+		else
+			local key = free
+			local oldNewest = newest[key]
+			local version = idVersion(oldNewest)
+			local id = createId(key, version)
+
+			free = indexes[free]
+
+			entities[key] = default
+			default.size += 1
+			default.index[default.size] = id
+			indexes[key] = default.size
+			newest[key] = id
+
+			return id
+		end
+	end
+
+	function World:component<T>(constructor: (() -> T)?): CType<T>
+		assert(size < MAX_KEY, "max entities reached")
+		size += 1
+
+		local key = size
+		local id = createId(key, 0)
+
+		entities[key] = default
+		ctypes[key] = constructor or function() end
+		default.size += 1
+		default.index[default.size] = id
+		newest[key] = id
+
+		return id
+	end
+
+	World.contains = function(_, id)
+		return contains(id)
+	end
+
+	function World:current(id: Entity)
+		local key = idKey(id)
+		local newest = newest[key]
+		return idVersion(newest)
+	end
+
+	--FIXME: Necessary to type properly.
+	World.get = function(self, id: Entity, ...: CType)
+		assert(contains(id), "invalid entity")
+		local key = idKey(id)
+
+		local archetype = entities[key]
+		local index = indexes[key]
+		local values = archetype.values
+
+		local a, b, c, d, e = ...
+
+		local function safeGet(ctype: CType, i: number?)
+			local value = get(index, values, ctype)
+			if value == nil then error(`component #{i} is nil`) end
+			return value
+		end
+
+		if b == nil then
+			return safeGet(a, 1)
+		elseif c == nil then
+			return safeGet(a, 1), safeGet(b, 2)
+		elseif d == nil then
+			return safeGet(a, 1), safeGet(b, 2), safeGet(c, 3)
+		elseif e == nil then
+			return safeGet(a, 1), safeGet(b, 2), safeGet(c, 3), safeGet(d, 4)
+		else
+			local tuple = table.create(select("#", ...) - 5)
+
+			for i = 1, #tuple do
+				tuple[i] = safeGet(select(i + 5, ...), i)
+			end
+
+			return safeGet(a, 1), safeGet(b, 2), safeGet(c, 3), safeGet(d, 4), safeGet(e, 5), unpack(tuple)
+		end
+	end :: <A, B, C, D>(
+		World,
+		id: Entity,
+		CType<A>,
+		CType<B>?,
+		CType<C>?,
+		CType<D>?,
+		...CType
+	) -> (A, B, C, D)
+
+	function World:set<T>(id: Entity, ctype: CType<T>, value: T?)
+		assert(contains(id), "invalid entity")
+		--assert(value ~= nil, "Value must not be nil")
+
+		local key = idKey(id)
+
+		local archetype = entities[key]
+		local index = indexes[key]
+
+		if value == nil then
+			local newArchetype = getNewArchetypeRemove(components, archetypes, archetype, ctype)
+			indexes[key] = swapArchetypeRemove(archetype, newArchetype, index, id)
+			entities[key] = newArchetype
+		elseif archetype.values[ctype] then
+			archetype.values[ctype][index] = value
+		else
+			local newArchetype = getNewArchetypeAdd(components, archetypes, archetype, ctype)
+			index = swapArchetypeAdd(archetype, newArchetype, index, id)
+			indexes[key] = index
+			entities[key] = newArchetype
+			newArchetype.values[ctype][index] = value
+		end
+	end
+
+	function World:addArchetype(id: Entity, ...: CType)
+		assert(contains(id), "invalid entity")
+		--assert(value ~= nil, "Value must not be nil")
+
+		local key = idKey(id)
+
+		local archetype = entities[key]
+		local index = indexes[key]
+
+		local newArchetype = getNewArchetypeAdd(components, archetypes, archetype, ...)
+		index = swapArchetypeAdd(archetype, newArchetype, index, id)
+		indexes[key] = index
+		entities[key] = newArchetype
+
+		local values = newArchetype.values
+		return function<T>(ctype: CType<T>, value: T)
+			values[ctype][index] = value
+		end
+	end
+
+	function World:remove(id: Entity, ...: CType)
+		assert(contains(id), "invalid entity")
+		local key = idKey(id)
+
+		local archetype = entities[key]
+		local index = indexes[key]
+
+		local newArchetype = getNewArchetypeRemove(components, archetypes, archetype, ...)
+		if newArchetype == archetype then return end
+		indexes[key] = swapArchetypeRemove(archetype, newArchetype, index, id)
+		entities[key] = newArchetype
+	end
+
+	function World:has(id: Entity, ...: CType)
+		if type(id) ~= "number" then return false end
+		if contains(id) == false then return false end
+
+		local key = idKey(id)
+
+		local archetype = entities[key]
+
+		for i = 1, select("#", ...) do
+			local ctype = select(i, ...)
+
+			if archetype.values[ctype] == nil then return false end
+		end
+
+		return true
+	end
+
+	function World:tryGet<T>(id: Entity, ctype: CType<T>): T?
+		assert(contains(id), "invalid entity")
+		local key = idKey(id)
+
+		local archetype = entities[key]
+		local index = indexes[key]
+
+		return if archetype.values[ctype] then archetype.values[ctype][index] else nil
+	end
+
+	function World:destroy(id: Entity)
+		assert(contains(id), "invalid entity")
+
+		local key, version = idKeyVersion(id)
+
+		local archetype = entities[key]
+		local index = indexes[key]
+
+		for ctype, values in archetype.values do
+			values[index] = nil
+		end
+
+		archetype.index[index] = nil
+		entities[key] = nil
+
+		if version == MAX_VERSION then
+			indexes[key] = INVALID_ENTITY
+			return
+		end
+
+		newest[key] = createId(key, version + 1)
+		indexes[key] = free
+		free = key
+	end
+
+	-- clears all components
+	function World:clear(...: CType)
+		local a = ...
+
+		if a == nil then
+			for key, id in newest do
+				if ctypes[id] == nil then self:destroy(id) end
+			end
+
+			for component, archetypes in components do
+				for _, archetype in archetypes do
+					for key, index in indexes do
+						local id = newest[key]
+						swapArchetypeRemove(archetype, default, index, id)
+					end
+				end
+			end
+		else
+			for i = 1, select("#", ...) do
+				local component: CType = select(i, ...)
+
+				for _, archetype in components[component] do
+					for key, index in indexes do
+						local id = newest[key]
+						swapArchetypeRemove(archetype, default, index, id)
+					end
+				end
+			end
+		end
+	end
+
+	(World :: any)._getCurrentEntityVersion = function(_, id)
+		return World:current(id)
+	end;
+
+	(World :: any)._setEntityVersion = function(_, key, version)
+		local id = createId(key, version)
+		local archetype = entities[key]
+		local index = indexes[key]
+		newest[key] = id
+
+		archetype.index[index] = id
+	end
+
+	return World :: World
+end

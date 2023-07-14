@@ -11,19 +11,6 @@ local arch = require("src/init")
 local function rtrue()
 	return true :: any
 end
-local A, B, C, D =
-	arch.component(rtrue),
-	arch.component(rtrue),
-	arch.component(rtrue),
-	arch.component(rtrue)
-local E, F, G, H =
-	arch.component(), arch.component(), arch.component(), arch.component()
-
-local TA, TB, TC, TD =
-	arch.component(rtrue),
-	arch.component(rtrue),
-	arch.component(rtrue),
-	arch.component(rtrue)
 
 -- power of 2 so arrays are better alined for accurate memory usage reading
 local N = 2 ^ 18 --~ 262k
@@ -60,7 +47,7 @@ do
 		end
 	end)
 
-	BENCH("Entity creation with desired id", function()
+	--[[BENCH("Entity creation with desired id", function()
 		local sreg = arch.World()
 
 		local id = table.create(N)
@@ -74,7 +61,7 @@ do
 		for i = 1, START(N) do
 			reg:createAt(id[i])
 		end
-	end)
+	end)]]
 end
 
 --[[do TITLE "Adding components"
@@ -149,6 +136,7 @@ do
 
 	do
 		local reg, ids = setup()
+		local A = reg:component()
 
 		BENCH("Add 1 component", function()
 			for i = 1, START(N) do
@@ -171,6 +159,7 @@ do
 
 	do
 		local reg, ids = setup()
+		local A, B = reg:component(rtrue), reg:component(rtrue)
 
 		BENCH("Add 2 components", function()
 			for i = 1, START(N) do
@@ -199,6 +188,8 @@ do
 
 	do
 		local reg, ids = setup()
+		local A, B, C, D = reg:component(rtrue), reg:component(rtrue), reg:component(rtrue), reg:component(rtrue)
+
 		BENCH("Add 4 components", function()
 			for i = 1, START(N) do
 				local e = ids[i]
@@ -245,6 +236,7 @@ do
 	do
 		BENCH("Fast Set Call Add 1", function()
 			local reg, ids = setup()
+			local A = reg:component()
 			local fastSets = table.create(N)
 			for i = 1, N do
 				fastSets[i] = reg:addArchetype(ids[i], A)
@@ -259,6 +251,7 @@ do
 	do
 		BENCH("Fast Set Call Add 2", function()
 			local reg, ids = setup()
+			local A, B = reg:component(), reg:component()
 			local fastSets = table.create(N)
 			for i = 1, N do
 				fastSets[i] = reg:addArchetype(ids[i], A, B)
@@ -274,6 +267,7 @@ do
 	do
 		BENCH("Fast Set Call Add 4", function()
 			local reg, ids = setup()
+			local A, B, C, D = reg:component(), reg:component(), reg:component(), reg:component()
 			local fastSets = table.create(N)
 			for i = 1, N do
 				fastSets[i] = reg:addArchetype(ids[i], A, B, C, D)
@@ -291,6 +285,7 @@ do
 	do
 		BENCH("Swap archetype 1 component", function()
 			local reg, ids = setup()
+			local A = reg:component()
 			for i = 1, START(N) do
 				reg:addArchetype(ids[i], A)
 			end
@@ -300,6 +295,7 @@ do
 	do
 		BENCH("Swap archetype 2 components", function()
 			local reg, ids = setup()
+			local A, B = reg:component(), reg:component()
 			for i = 1, START(N) do
 				reg:addArchetype(ids[i], A, B)
 			end
@@ -309,6 +305,7 @@ do
 	do
 		BENCH("Swap archetype 4 components", function()
 			local reg, ids = setup()
+			local A, B, C, D = reg:component(), reg:component(), reg:component(), reg:component()
 			for i = 1, START(N) do
 				reg:addArchetype(ids[i], A, B, C, D)
 			end
@@ -318,6 +315,7 @@ do
 	do
 		BENCH("Adding 1 component", function()
 			local reg, ids = setup()
+			local A = reg:component()
 			for i = 1, START(N) do
 				local e = ids[i]
 				local fastSet = reg:addArchetype(e, A)
@@ -328,6 +326,7 @@ do
 
 	do
 		local reg, ids = setup()
+		local A, B = reg:component(), reg:component()
 
 		BENCH("Adding 2 component", function()
 			for i = 1, START(N) do
@@ -341,6 +340,7 @@ do
 
 	do
 		local reg, ids = setup()
+		local A, B, C, D = reg:component(), reg:component(), reg:component(), reg:component()
 
 		BENCH("Adding 4 component", function()
 			for i = 1, START(N) do
@@ -416,6 +416,7 @@ do
 	TITLE("Has components")
 	local reg = arch.World()
 	local ids = table.create(N)
+	local A, B, C, D = reg:component(rtrue), reg:component(rtrue), reg:component(rtrue), reg:component(rtrue)
 
 	for i = 1, N do
 		ids[i] = reg:create()
@@ -450,6 +451,8 @@ do
 	TITLE("Getting components")
 	local reg = arch.World()
 	local ids = table.create(N)
+	local A, B, C, D = reg:component(rtrue), reg:component(rtrue), reg:component(rtrue), reg:component(rtrue)
+	local E, F, G, H = reg:component(rtrue), reg:component(rtrue), reg:component(rtrue), reg:component(rtrue)
 
 	for i = 1, N do
 		local e = reg:create()
@@ -471,14 +474,14 @@ do
 		end
 	end)
 
-	BENCH("Get 2 component", function()
+	BENCH("Get 2 components", function()
 		for i = 1, START(N) do
 			local e = ids[i]
 			reg:get(e, A, B)
 		end
 	end)
 
-	BENCH("Get 4 component", function()
+	BENCH("Get 4 components", function()
 		for i = 1, START(N) do
 			local e = ids[i]
 			reg:get(e, A, B, C, D)
@@ -503,6 +506,8 @@ do
 	local function setup()
 		local reg = arch.World()
 		local ids = table.create(N)
+		local A, B, C, D = reg:component(rtrue), reg:component(rtrue), reg:component(rtrue), reg:component(rtrue)
+		local E, F, G, H = reg:component(rtrue), reg:component(rtrue), reg:component(rtrue), reg:component(rtrue)
 		for i = 1, N do
 			local e = reg:create()
 			ids[i] = e
@@ -520,6 +525,7 @@ do
 
 	BENCH("Attempt remove of non-existant component", function()
 		local reg, ids = setup()
+		local A = reg:component()
 		for i = 1, N do
 			reg:remove(ids[i], A)
 		end
@@ -531,6 +537,7 @@ do
 
 	BENCH("Remove 1 component", function()
 		local reg, ids = setup()
+		local A = reg:component()
 		for i = 1, START(N) do
 			reg:remove(ids[i], A)
 		end
@@ -538,6 +545,7 @@ do
 
 	BENCH("Remove 2 components", function()
 		local reg, ids = setup()
+		local A, B = reg:component(), reg:component()
 		for i = 1, START(N) do
 			local e = ids[i]
 			reg:remove(e, A, B)
@@ -546,6 +554,7 @@ do
 
 	BENCH("Remove 4 components", function()
 		local reg, ids = setup()
+		local A, B, C, D = reg:component(rtrue), reg:component(rtrue), reg:component(rtrue), reg:component(rtrue)
 		for i = 1, START(N) do
 			local e = ids[i]
 			reg:remove(e, A, B, C, D)
@@ -554,6 +563,8 @@ do
 
 	BENCH("Remove 8 components", function()
 		local reg, ids = setup()
+		local A, B, C, D = reg:component(rtrue), reg:component(rtrue), reg:component(rtrue), reg:component(rtrue)
+		local E, F, G, H = reg:component(rtrue), reg:component(rtrue), reg:component(rtrue), reg:component(rtrue)
 		for i = 1, START(N) do
 			local e = ids[i]
 			reg:remove(e, A, B, C, D, E, F, G, H)
@@ -561,10 +572,15 @@ do
 	end)
 end
 
+--[[
 do
 	TITLE("Getting Archetypes")
 
 	local worlds = {}
+	local A = {}
+	local B = {}
+	local C = {}
+	local D = {}
 
 	for i = 1, N do
 		worlds[i] = arch.World()
@@ -572,7 +588,7 @@ do
 
 	BENCH("Get new archetype", function()
 		for i = 1, START(N) do
-			worlds[i]:_getArchetype(A, B, C, D, E, F, G, H)
+			worlds[i]:_getArchetype()
 		end
 	end)
 
@@ -583,242 +599,9 @@ do
 			reg:_getArchetype(A, B, C, D, E, F, G, H)
 		end
 	end)
-end
+end]]
 
-do
-	TITLE("Clear components")
-	local function setup()
-		local reg = arch.World()
-		local ids = table.create(N)
-		for i = 1, N do
-			local e = reg:create()
-			ids[i] = e
-			reg:set(e, A, true)
-			reg:set(e, B, true)
-			reg:set(e, C, true)
-			reg:set(e, D, true)
-			reg:set(e, E, true)
-			reg:set(e, F, true)
-			reg:set(e, G, true)
-			reg:set(e, H, true)
-		end
-		return reg, ids
-	end
-
-	BENCH("Clear 1 component", function()
-		local reg = setup()
-
-		START(N)
-		reg:clear(A)
-	end)
-
-	BENCH("Clear 2 components", function()
-		local reg = setup()
-
-		START(N)
-		reg:clear(A, B)
-	end)
-
-	BENCH("Clear 4 components", function()
-		local reg = setup()
-
-		START(N)
-		reg:clear(A, B, C, D)
-	end)
-
-	BENCH("Clear 8 components", function()
-		local reg = setup()
-
-		START(N)
-		reg:clear(A, B, C, D, E, F, G, H)
-	end)
-
-	BENCH("Clear all entities (no components)", function()
-		local reg = arch.World()
-		for i = 1, N do
-			reg:create()
-		end
-
-		START(N)
-		reg:clear()
-	end)
-end
-
-do
-	TITLE("Create view")
-	local reg = arch.World()
-
-	reg:query(A, B, C, D, E, F, G, H) -- register components
-
-	BENCH("View 1 component", function()
-		for i = 1, START(N) do
-			reg:query(A)
-		end
-	end)
-
-	BENCH("View 4 component", function()
-		for i = 1, START(N) do
-			reg:query(A, B, C, D)
-		end
-	end)
-end
-
-do
-	local function viewBench(reg)
-		local function getExactSize(view): number
-			local i = 0
-			for _ in view do
-				i += 1
-			end
-			return i
-		end
-
-		BENCH("View 1 component", function()
-			local view = reg:query(A)
-
-			START(getExactSize(view))
-			for entity, a in view do
-			end
-		end)
-
-		BENCH("View 2 components", function()
-			local view = reg:query(A, B)
-
-			START(getExactSize(view))
-			for entity, a, b in view do
-			end
-		end)
-
-		BENCH("View 4 components", function()
-			local view = reg:query(A, B, C, D)
-
-			START(getExactSize(view))
-			for entity, a, b, c, d in view do
-			end
-		end)
-
-		BENCH("View 8 components", function()
-			local view = reg:query(A, B, C, D, E, F, G, H)
-
-			START(getExactSize(view))
-			for entity, a, b, c, d, e, f, g, h in view do
-			end
-		end)
-	end
-
-	do
-		TITLE("View all entities with ordered components")
-		local reg = arch.World()
-
-		for i = 1, N do
-			local entity = reg:create()
-			reg:set(entity, A, true)
-			reg:set(entity, B, true)
-			reg:set(entity, C, true)
-			reg:set(entity, D, true)
-			reg:set(entity, E, true)
-			reg:set(entity, F, true)
-			reg:set(entity, G, true)
-			reg:set(entity, H, true)
-		end
-
-		viewBench(reg)
-	end
-
-	do
-		TITLE("View all entities with random components (50% distr.)")
-		local reg = arch.World()
-
-		local function flip()
-			return math.random() > 0.5
-		end
-
-		for i = 1, N do
-			local entity = reg:create()
-			if flip() then reg:set(entity, A, true) end
-			if flip() then reg:set(entity, B, true) end
-			if flip() then reg:set(entity, C, true) end
-			if flip() then reg:set(entity, D, true) end
-			if flip() then reg:set(entity, E, true) end
-			if flip() then reg:set(entity, F, true) end
-			if flip() then reg:set(entity, G, true) end
-			if flip() then reg:set(entity, H, true) end
-		end
-
-		viewBench(reg)
-	end
-
-	do
-		TITLE("View all entities with common component (50% distr.)")
-		-- 7 components are randomly assigned to entities,
-		-- any entities that receive all 7 will be tagged with an 8th component.
-		-- This guarantees that when iterating over this 8th component, all
-		-- entities iterated will also contain the other 7.
-
-		local reg = arch.World()
-
-		local function flip()
-			return math.random() > 0.5
-		end
-
-		for i = 1, N do
-			local entity = reg:create()
-			local b, c, d, e, f, g, h
-			if flip() then
-				b = true
-				reg:set(entity, B, true)
-			end
-			if flip() then
-				c = true
-				reg:set(entity, C, true)
-			end
-			if flip() then
-				d = true
-				reg:set(entity, D, true)
-			end
-			if flip() then
-				e = true
-				reg:set(entity, E, true)
-			end
-			if flip() then
-				f = true
-				reg:set(entity, F, true)
-			end
-			if flip() then
-				g = true
-				reg:set(entity, G, true)
-			end
-			if flip() then
-				h = true
-				reg:set(entity, H, true)
-			end
-			if b and c and d and e and f and g and h then
-				reg:set(entity, A, true)
-			end
-		end
-
-		viewBench(reg)
-	end
-
-	--[[do TITLE("View tags")
-        local reg = arch.World()
-
-        for i = 1, N do
-            local e = reg:handle()
-            e:add(TA, TB, TC, TD)
-        end
-
-        BENCH("View 1 tag", function()
-            START(N)
-            for id, a in reg:query(TA) do end
-        end)
-
-        BENCH("View 4 tag", function()
-            START(N)
-            for id, a, b, c, d in reg:query(TA, TB, TC, TD) do end
-        end)
-    end]]
-end
+--]]
 
 --[[do TITLE ("Handles")
     local N2 = N/32
@@ -939,6 +722,7 @@ do
 	BENCH("Destroy entity with 1 components", function()
 		local reg = arch.World()
 		local ids = table.create(N)
+		local A = reg:component()
 
 		for i = 1, N do
 			local e = reg:create()
@@ -954,6 +738,7 @@ do
 	BENCH("Destroy entity with 2 components", function()
 		local reg = arch.World()
 		local ids = table.create(N)
+		local A, B = reg:component(), reg:component()
 
 		for i = 1, N do
 			local e = reg:create()
@@ -970,6 +755,7 @@ do
 	BENCH("Destroy entity with 4 components", function()
 		local reg = arch.World()
 		local ids = table.create(N)
+		local A, B, C, D = reg:component(rtrue), reg:component(rtrue), reg:component(rtrue), reg:component(rtrue)
 
 		for i = 1, N do
 			local e = reg:create()
@@ -985,84 +771,92 @@ do
 		end
 	end)
 
-	BENCH(
-		"Destroy entity with no components (8 component registered)",
-		function()
-			local reg = arch.World()
-			local ids = table.create(N)
+	BENCH("Destroy entity with no components (8 component registered)", function()
+		local reg = arch.World()
+		local ids = table.create(N)
+		local A, B, C, D = reg:component(rtrue), reg:component(rtrue), reg:component(rtrue), reg:component(rtrue)
+		local E, F, G, H = reg:component(rtrue), reg:component(rtrue), reg:component(rtrue), reg:component(rtrue)
 
-			for i = 1, N do
-				local e = reg:create()
-				ids[i] = e
-			end
+		for i = 1, N do
+			local e = reg:create()
+			ids[i] = e
+		end
 
-			do -- register all components
-				local e = reg:create()
-				reg:set(e, A, true)
-				reg:set(e, B, true)
-				reg:set(e, C, true)
-				reg:set(e, D, true)
-				reg:set(e, E, true)
-				reg:set(e, F, true)
-				reg:set(e, G, true)
-				reg:set(e, H, true)
-			end
+		do -- register all components
+			local e = reg:create()
+			reg:set(e, A, true)
+			reg:set(e, B, true)
+			reg:set(e, C, true)
+			reg:set(e, D, true)
+			reg:set(e, E, true)
+			reg:set(e, F, true)
+			reg:set(e, G, true)
+			reg:set(e, H, true)
+		end
 
-			for i = 1, START(N) do
-				reg:destroy(ids[i])
+		for i = 1, START(N) do
+			reg:destroy(ids[i])
+		end
+	end)
+
+	BENCH("Destroy entity with no components (128 component registered)", function()
+		local reg = arch.World()
+
+		do
+			local id = reg:create()
+			for i = 1, 128 do
+				local component = reg:component()
+				reg:set(id, component, true)
 			end
 		end
-	)
 
-	BENCH(
-		"Destroy entity with no components (128 component registered)",
-		function()
-			local reg = arch.World()
+		local ids = table.create(N)
 
-			do
-				local id = reg:create()
-				for i = 1, 128 do
-					local component = arch.component()
-					reg:set(id, component, true)
-				end
-			end
+		for i = 1, N do
+			ids[i] = reg:create()
+		end
 
-			local ids = table.create(N)
+		for i = 1, START(N) do
+			reg:destroy(ids[i])
+		end
+	end)
 
-			for i = 1, N do
-				ids[i] = reg:create()
-			end
+	BENCH("Destroy entity with no components (1024 component registered)", function()
+		local reg = arch.World()
 
-			for i = 1, START(N) do
-				reg:destroy(ids[i])
+		do
+			local id = reg:create()
+			for i = 1, 1024 do
+				local component = reg:component()
+				reg:set(id, component, true)
 			end
 		end
-	)
 
-	BENCH(
-		"Destroy entity with no components (1024 component registered)",
-		function()
-			local reg = arch.World()
+		local ids = table.create(N)
 
-			do
-				local id = reg:create()
-				for i = 1, 1024 do
-					local component = arch.component()
-					reg:set(id, component, true)
-				end
-			end
-
-			local ids = table.create(N)
-
-			for i = 1, N / 10 do
-				ids[i] = reg:create()
-			end
-
-			for i = 1, START(N / 10) do
-				reg:destroy(ids[i])
-			end
+		for i = 1, N / 10 do
+			ids[i] = reg:create()
 		end
-	)
+
+		for i = 1, START(N / 10) do
+			reg:destroy(ids[i])
+		end
+	end)
+end
+
+do
+	TITLE("Clearing Entities")
+	BENCH("Clear 2^18 entities", function()
+		local reg = arch.World()
+		local ids = table.create(N)
+		for i = 1, N do
+			ids[i] = reg:create()
+		end
+
+		START()
+
+		reg:clear()
+	end)
 end
 
 do
@@ -1190,11 +984,11 @@ do
 	TITLE("Practical tests")
 	local world = arch.World()
 
-	local Position = arch.component() :: number
-	local Velocity = arch.component() :: number
-	local Health = arch.component() :: number
+	local Position = world:component() :: number
+	local Velocity = world:component() :: number
+	local Health = world:component() :: number
 
-	local Dead = arch.component(rtrue)
+	local Dead = world:component(rtrue)
 
 	--world:group(Position, Velocity)
 

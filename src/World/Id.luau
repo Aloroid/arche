@@ -1,39 +1,39 @@
 local INITIAL_ENTITY_VERSION = 1
 local MAX_ENTITIES = 0x000F_FFFF
 
-local ID_INVALID_INDEX = 0
+local ID_INVALID_KEY = 0
 local ID_MAX_INT = 2 ^ 53 - 1
-local ID_MASK_INDEX = MAX_ENTITIES
-local ID_MASK_VER = ID_MAX_INT - ID_MASK_INDEX
+local ID_MASK_KEY = MAX_ENTITIES
+local ID_MASK_VER = ID_MAX_INT - ID_MASK_KEY
 
-local ID_LSHIFT = ID_MASK_INDEX + 1
+local ID_LSHIFT = ID_MASK_KEY + 1
 local ID_RSHIFT = 1 / ID_LSHIFT
 
-local ID_MAX_INDEX = ID_MASK_INDEX
+local ID_MAX_KEY = ID_MASK_KEY
 local ID_MAX_VERSION = ID_MASK_VER * ID_RSHIFT
 
-local function createId(index: number, version: number): number
-	--assert(INDEX <= ID_MAX_INDEX)
+local function createId(key: number, version: number): number
+	--assert(Key <= ID_MAX_Key)
 	--assert(ver <= ID_MAX_VERSION)
-	return version * ID_LSHIFT + index
+	return version * ID_LSHIFT + key
 end
 
-local function idIndex(ID: number): number
-	return bit32.band(ID, ID_MASK_INDEX)
+local function idKey(ID: number): number
+	return bit32.band(ID, ID_MASK_KEY)
 end
 
-local function idIndexVersion(ID: number): (number, number)
-	local index = idIndex(ID)
-	local ver = (ID - index) * ID_RSHIFT
-	return index, ver
+local function idKeyVersion(ID: number): (number, number)
+	local key = idKey(ID)
+	local ver = (ID - key) * ID_RSHIFT
+	return key, ver
 end
 
 local function idVersion(ID: number): number
-	return (ID - idIndex(ID)) * ID_RSHIFT
+	return (ID - idKey(ID)) * ID_RSHIFT
 end
 
-local function idSwapIndex(ID: number, index: number): number
-	return ID - idIndex(ID) + index
+local function idSwapKey(ID: number, key: number): number
+	return ID - idKey(ID) + key
 end
 
 return {
@@ -41,14 +41,14 @@ return {
 	INITIAL_ENTITY_VERSION = INITIAL_ENTITY_VERSION,
 	MAX_ENTITIES = MAX_ENTITIES,
 
-	ID_INVALID_INDEX = ID_INVALID_INDEX,
+	ID_INVALID_KEY = ID_INVALID_KEY,
 
-	ID_MAX_INDEX = ID_MAX_INDEX,
+	ID_MAX_KEY = ID_MAX_KEY,
 	ID_MAX_VERSION = ID_MAX_VERSION,
 
 	createId = createId,
-	idIndex = idIndex,
-	idIndexVersion = idIndexVersion,
+	idKey = idKey,
+	idKeyVersion = idKeyVersion,
 	idVersion = idVersion,
-	idSwapIndex = idSwapIndex,
+	idSwapKey = idSwapKey,
 }
