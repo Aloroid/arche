@@ -68,7 +68,7 @@ local function setValuesAndComponents(sorted: Array<CType>, components: Componen
 	local values = {}
 	for _, ctype in sorted do
 		values[ctype] = {}
-		components[ctype] = archetype
+		table.insert(components[ctype], archetype)
 	end
 	return values
 end
@@ -188,6 +188,7 @@ local function swapArchetypeAdd(archetype: Archetype, newArchetype: Archetype, i
 
 	for ctype, values in archetype.values do
 		newValues[ctype][newIndex] = values[index]
+		values[index] = nil
 	end
 
 	newArchetype.index[newIndex] = id
@@ -204,11 +205,116 @@ local function swapArchetypeRemove(archetype: Archetype, newArchetype: Archetype
 
 	for ctype, newValues in newArchetype.values do
 		newValues[newIndex] = values[ctype][index]
+		values[ctype][index] = nil
 	end
 
 	newArchetype.index[newIndex] = id
 	archetype.index[index] = nil
 	return newIndex
+end
+
+local function newQuery(components: Components, storage: ArchetypeIndex, ...: CType)
+	assert(... ~= nil, "must include atleast 1 component")
+	local include = { ... }
+
+	for i, v in include do
+		if table.find(include, v, i + 1) then error("duplicate include") end
+	end
+
+	local exclude = {}
+
+	local query = {}
+	local compatible
+	local max = {}
+	local tuple = table.clone(include)
+
+	local function updateCompatibleArchetypes()
+		if #exclude == 0 and #include == 1 then
+			local a = include[1]
+			compatible = table.create(#components[a])
+			for _, archetype in components[a] do
+				table.insert(max, archetype.size)
+				table.insert(compatible, archetype)
+			end
+		elseif #exclude == 0 and #include == 2 then
+			compatible = {}
+			local a, b = include[1], include[2]
+			for _, archetype in components[a] do
+				if archetype.values[b] ~= nil then
+					--print("found compatible archetype")
+					table.insert(compatible, archetype)
+					table.insert(max, archetype.size)
+				end
+			end
+		else
+			compatible = {}
+			for _, archetype in components[include[1]] do
+				-- exclude
+				local bad = false
+				for _, ctype in exclude do
+					if archetype.values[ctype] then
+						bad = true
+						break
+					end
+				end
+
+				if bad then continue end
+
+				for _, ctype in include do
+					if archetype.values[ctype] == nil then
+						bad = true
+						break
+					end
+				end
+
+				if bad then continue end
+
+				--print("found compatible archetype")
+				table.insert(compatible, archetype)
+				table.insert(max, archetype.size)
+			end
+		end
+	end
+
+	function query:exclude(...: CType)
+		for i = 1, select("#", ...) do
+			if table.find(include, select(i, ...)) then error(`component #{i} is already included, cannot exclude`) end
+		end
+		exclude = { ... }
+		return self
+	end
+
+	function query:each()
+		if compatible == nil then updateCompatibleArchetypes() end
+
+		local a = include[1]
+
+		local thread = coroutine.wrap(function()
+			for i, archetype: Archetype in compatible do
+				local maximum = max[i]
+				for index in archetype.values[a] do
+					if index > maximum then break end
+					local id = archetype.index[index]
+
+					for i = 1, #include do
+						local ctype = include[i]
+						tuple[i] = archetype.values[ctype][index]
+					end
+
+					coroutine.yield(id, unpack(tuple))
+				end
+			end
+		end)
+
+		return function()
+			return thread()
+		end
+	end
+
+	query.__iter = query.each
+
+	return setmetatable(query, query)
+	-- get any compatible archetypes
 end
 
 return function()
@@ -278,6 +384,7 @@ return function()
 		ctypes[key] = constructor or function() end
 		default.size += 1
 		default.index[default.size] = id
+		components[id] = {}
 		newest[key] = id
 
 		return id
@@ -475,6 +582,10 @@ return function()
 				end
 			end
 		end
+	end
+
+	function World:query(...: CType)
+		return newQuery(components, archetypes, ...)
 	end
 
 	(World :: any)._getCurrentEntityVersion = function(_, id)

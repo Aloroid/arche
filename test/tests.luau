@@ -423,7 +423,7 @@ TEST("registry:remove()", function()
 		CHECK(reg:has(newid, A))
 	end
 end)
---[[
+
 TEST("registry:query()", function()
 	local function flip()
 		return math.random() > 0.3
@@ -445,6 +445,8 @@ TEST("registry:query()", function()
 	end
 
 	local reg = arch.World()
+	local A, B, C, D = reg:component(), reg:component(), reg:component(), reg:component()
+	local E, F, G, H = reg:component(), reg:component(), reg:component(), reg:component()
 
 	local ids = {}
 	local As = {}
@@ -563,7 +565,7 @@ TEST("registry:query()", function()
 		end)
 		CHECK(not ok)
 	end
-end)]]
+end)
 
 local success = FINISH()
 if not success then error(nil, 0) end

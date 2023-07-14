@@ -860,6 +860,188 @@ do
 end
 
 do
+	TITLE("Create view")
+	local reg = arch.World()
+	local A, B, C, D = reg:component(rtrue), reg:component(rtrue), reg:component(rtrue), reg:component(rtrue)
+	local E, F, G, H = reg:component(rtrue), reg:component(rtrue), reg:component(rtrue), reg:component(rtrue)
+
+	reg:query(A, B, C, D, E, F, G, H) -- register components
+
+	BENCH("View 1 component", function()
+		for i = 1, START(N) do
+			reg:query(A)
+		end
+	end)
+
+	BENCH("View 4 component", function()
+		for i = 1, START(N) do
+			reg:query(A, B, C, D)
+		end
+	end)
+end
+
+do
+	local function viewBench(reg, A, B, C, D, E, F, G, H)
+		local function getExactSize(view): number
+			local i = 0
+			for _ in view do
+				i += 1
+			end
+			return i
+		end
+
+		BENCH("View 1 component", function()
+			local view = reg:query(A)
+
+			START(getExactSize(view))
+			for entity, a in view do
+			end
+		end)
+
+		BENCH("View 2 components", function()
+			local view = reg:query(A, B)
+
+			START(getExactSize(view))
+			for entity, a, b in view do
+			end
+		end)
+
+		BENCH("View 4 components", function()
+			local view = reg:query(A, B, C, D)
+
+			START(getExactSize(view))
+			for entity, a, b, c, d in view do
+			end
+		end)
+
+		BENCH("View 8 components", function()
+			local view = reg:query(A, B, C, D, E, F, G, H)
+
+			START(getExactSize(view))
+			for entity, a, b, c, d, e, f, g, h in view do
+			end
+		end)
+	end
+
+	do
+		TITLE("View all entities with ordered components")
+		local reg = arch.World()
+		local A, B, C, D = reg:component(rtrue), reg:component(rtrue), reg:component(rtrue), reg:component(rtrue)
+		local E, F, G, H = reg:component(rtrue), reg:component(rtrue), reg:component(rtrue), reg:component(rtrue)
+
+		for i = 1, N do
+			local entity = reg:create()
+			reg:set(entity, A, true)
+			reg:set(entity, B, true)
+			reg:set(entity, C, true)
+			reg:set(entity, D, true)
+			reg:set(entity, E, true)
+			reg:set(entity, F, true)
+			reg:set(entity, G, true)
+			reg:set(entity, H, true)
+		end
+
+		viewBench(reg, A, B, C, D, E, F, G, H)
+	end
+
+	do
+		TITLE("View all entities with random components (50% distr.)")
+		local reg = arch.World()
+		local A, B, C, D = reg:component(rtrue), reg:component(rtrue), reg:component(rtrue), reg:component(rtrue)
+		local E, F, G, H = reg:component(rtrue), reg:component(rtrue), reg:component(rtrue), reg:component(rtrue)
+
+		local function flip()
+			return math.random() > 0.5
+		end
+
+		for i = 1, N do
+			local entity = reg:create()
+			if flip() then reg:set(entity, A, true) end
+			if flip() then reg:set(entity, B, true) end
+			if flip() then reg:set(entity, C, true) end
+			if flip() then reg:set(entity, D, true) end
+			if flip() then reg:set(entity, E, true) end
+			if flip() then reg:set(entity, F, true) end
+			if flip() then reg:set(entity, G, true) end
+			if flip() then reg:set(entity, H, true) end
+		end
+
+		viewBench(reg, A, B, C, D, E, F, G, H)
+	end
+
+	do
+		TITLE("View all entities with common component (50% distr.)")
+		-- 7 components are randomly assigned to entities,
+		-- any entities that receive all 7 will be tagged with an 8th component.
+		-- This guarantees that when iterating over this 8th component, all
+		-- entities iterated will also contain the other 7.
+
+		local reg = arch.World()
+		local A, B, C, D = reg:component(rtrue), reg:component(rtrue), reg:component(rtrue), reg:component(rtrue)
+		local E, F, G, H = reg:component(rtrue), reg:component(rtrue), reg:component(rtrue), reg:component(rtrue)
+
+		local function flip()
+			return math.random() > 0.5
+		end
+
+		for i = 1, N do
+			local entity = reg:create()
+			local b, c, d, e, f, g, h
+			if flip() then
+				b = true
+				reg:set(entity, B, true)
+			end
+			if flip() then
+				c = true
+				reg:set(entity, C, true)
+			end
+			if flip() then
+				d = true
+				reg:set(entity, D, true)
+			end
+			if flip() then
+				e = true
+				reg:set(entity, E, true)
+			end
+			if flip() then
+				f = true
+				reg:set(entity, F, true)
+			end
+			if flip() then
+				g = true
+				reg:set(entity, G, true)
+			end
+			if flip() then
+				h = true
+				reg:set(entity, H, true)
+			end
+			if b and c and d and e and f and g and h then reg:set(entity, A, true) end
+		end
+
+		viewBench(reg, A, B, C, D, E, F, G, H)
+	end
+
+	--[[do TITLE("View tags")
+        local reg = arch.World()
+
+        for i = 1, N do
+            local e = reg:handle()
+            e:add(TA, TB, TC, TD)
+        end
+
+        BENCH("View 1 tag", function()
+            START(N)
+            for id, a in reg:query(TA) do end
+        end)
+
+        BENCH("View 4 tag", function()
+            START(N)
+            for id, a, b, c, d in reg:query(TA, TB, TC, TD) do end
+        end)
+    end]]
+end
+
+do
 	TITLE("Valid id checking")
 	BENCH("registry::contains", function()
 		local reg = arch.World()

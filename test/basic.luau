@@ -12,3 +12,7 @@ reg:set(id, A, true)
 print(reg:get(id, A))
 reg:set(id, B, true)
 reg:set(id, C, true)
+
+for id, a in reg:query(A) do
+	print(id, a)
+end
