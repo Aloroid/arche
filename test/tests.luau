@@ -254,6 +254,21 @@ TEST("registry:set()", function()
 		end)
 	end
 
+	do
+		CASE("Add component to component")
+		CHECK(reg:tryGet(A, A) == nil)
+		reg:set(A, A, 1)
+		CHECK(reg:get(A, A) == 1)
+	end
+
+	do
+		CASE("Add entity to entity")
+		local id = reg:create()
+		CHECK(reg:tryGet(id, id) == nil)
+		reg:set(id, id, 1)
+		CHECK(reg:get(id, id) == 1)
+	end
+
 	--[[do CASE "Add component to null entity"
         CHECK_ERR("invalid entity", function()
             reg:set(ecr.null, A, true)

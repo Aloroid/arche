@@ -18,7 +18,6 @@ type Archetype = {
 	sorted: Array<CType>,
 	index: Array<CType>,
 
-	compatible: Map<Archetype, boolean>,
 	fastAdd: Map<CType, Archetype>,
 	fastRemove: Map<CType, Archetype>,
 }
@@ -56,7 +55,6 @@ local createId = Id.createId
 local idKey = Id.idKey
 local idKeyVersion = Id.idKeyVersion
 local idVersion = Id.idVersion
-local idSwap = Id.idSwapKey
 
 local INITIAL_ENTITY_VERSION = Id.INITIAL_ENTITY_VERSION
 local INVALID_ENTITY = Id.ID_INVALID_KEY
@@ -68,6 +66,7 @@ local function setValuesAndComponents(sorted: Array<CType>, components: Componen
 	local values = {}
 	for _, ctype in sorted do
 		values[ctype] = {}
+		if components[ctype] == nil then components[ctype] = {} end
 		table.insert(components[ctype], archetype)
 	end
 	return values
@@ -83,7 +82,6 @@ local function createArchetype(
 		size = 0,
 		sorted = sorted,
 		index = {},
-		compatible = {},
 		fastAdd = {},
 		fastRemove = {},
 	}
@@ -224,7 +222,7 @@ local function newQuery(components: Components, storage: ArchetypeIndex, ...: CT
 	local exclude = {}
 
 	local query = {}
-	local compatible
+	local compatible = {}
 	local max = {}
 	local tuple = table.clone(include)
 
@@ -237,7 +235,6 @@ local function newQuery(components: Components, storage: ArchetypeIndex, ...: CT
 				table.insert(compatible, archetype)
 			end
 		elseif #exclude == 0 and #include == 2 then
-			compatible = {}
 			local a, b = include[1], include[2]
 			for _, archetype in components[a] do
 				if archetype.values[b] ~= nil then
@@ -247,7 +244,6 @@ local function newQuery(components: Components, storage: ArchetypeIndex, ...: CT
 				end
 			end
 		else
-			compatible = {}
 			for _, archetype in components[include[1]] do
 				-- exclude
 				local bad = false
@@ -285,7 +281,7 @@ local function newQuery(components: Components, storage: ArchetypeIndex, ...: CT
 	end
 
 	function query:each()
-		if compatible == nil then updateCompatibleArchetypes() end
+		updateCompatibleArchetypes()
 
 		local a = include[1]
 
@@ -381,11 +377,12 @@ return function()
 		local id = createId(key, 0)
 
 		entities[key] = default
-		ctypes[key] = constructor or function() end
 		default.size += 1
 		default.index[default.size] = id
-		components[id] = {}
+		indexes[key] = default.size
 		newest[key] = id
+		ctypes[key] = constructor or function() end
+		components[id] = {}
 
 		return id
 	end
