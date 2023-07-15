@@ -23,8 +23,42 @@ type Archetype = {
 }
 type ArchetypeIndex = {
 	archetype: Archetype?,
+	queue: Array<Archetype>?,
 	[number]: ArchetypeIndex,
 }
+
+--FIXME: Need Roblox to implement a Partial type instead so this can be shortened
+type Query<A, B, C, D, E, F, G, H> = {
+
+	exclude: (Query<A, B, C, D, E, F, G, H>, ...CType) -> Query<A, B, C, D, E, F, G, H>,
+	each: (Query<A, B, C, D, E, F, G, H>) -> () -> (A, B, C, D, E, F, G, H),
+}
+
+type GetCall = <A, B, C, D, E, F, G, H>(
+	World,
+	id: Entity,
+	CType<A>,
+	CType<B>?,
+	CType<C>?,
+	CType<D>?,
+	CType<E>?,
+	CType<F>?,
+	CType<G>?,
+	CType<H>?
+) -> (A, B, C, D, E, F, G, H)
+
+type QueryCall = <A, B, C, D, E, F, G, H>(
+	World,
+	id: Entity,
+	CType<A>,
+	CType<B>?,
+	CType<C>?,
+	CType<D>?,
+	CType<E>?,
+	CType<F>?,
+	CType<G>?,
+	CType<H>?
+) -> Query<A, B, C, D, E, F, G, H>
 
 export type World = {
 
@@ -33,22 +67,18 @@ export type World = {
 	contains: (World, id: Entity) -> (boolean, boolean),
 	current: (World, id: Entity) -> number,
 
-	get: <A, B, C, D>(
-		World,
-		id: Entity,
-		CType<A>,
-		CType<B>?,
-		CType<C>?,
-		CType<D>?,
-		...CType
-	) -> (A, B, C, D), --FIXME: Need Roblox to implement a Partial type instead so this can be shortened
-	set: <T>(World, id: Entity, ctype: CType<T>, value: T?) -> T,
-	tryGet: <T>(World, id: Entity, ctype: CType<T>) -> T?,
+	get: GetCall,
+	tryGet: <T>(World, id: Entity, component: CType<T>) -> T?,
 	has: (World, id: Entity, ...CType) -> boolean,
+
+	set: <T>(World, id: Entity, component: CType<T>, value: T?) -> T,
 	addArchetype: (World, id: Entity, ...CType) -> <T>(ctype: CType<T>, value: T) -> (),
 	remove: (World, id: Entity, ...CType) -> (),
+
 	destroy: (World, id: Entity) -> (),
 	clear: (World, ...CType) -> (),
+
+	query: QueryCall,
 }
 
 local createId = Id.createId
@@ -222,20 +252,28 @@ local function newQuery(components: Components, storage: ArchetypeIndex, ...: CT
 	local exclude = {}
 
 	local query = {}
-	local compatible = {}
-	local max = {}
+	local compatible
+	local max
 	local tuple = table.clone(include)
 
 	local function updateCompatibleArchetypes()
 		if #exclude == 0 and #include == 1 then
 			local a = include[1]
-			compatible = table.create(#components[a])
-			for _, archetype in components[a] do
-				table.insert(max, archetype.size)
-				table.insert(compatible, archetype)
+			compatible = components[a]
+			max = table.create(#compatible)
+			for i, archetype in compatible do
+				max[i] = archetype.size
 			end
 		elseif #exclude == 0 and #include == 2 then
 			local a, b = include[1], include[2]
+
+			if #components[a] > #components[b] then
+				b, a = a, b
+			end
+
+			max = {}
+			compatible = {}
+
 			for _, archetype in components[a] do
 				if archetype.values[b] ~= nil then
 					--print("found compatible archetype")
@@ -244,6 +282,8 @@ local function newQuery(components: Components, storage: ArchetypeIndex, ...: CT
 				end
 			end
 		else
+			max = {}
+			compatible = {}
 			for _, archetype in components[include[1]] do
 				-- exclude
 				local bad = false
@@ -307,6 +347,7 @@ local function newQuery(components: Components, storage: ArchetypeIndex, ...: CT
 		end
 	end
 
+	query._update = updateCompatibleArchetypes
 	query.__iter = query.each
 
 	return setmetatable(query, query)
@@ -431,15 +472,7 @@ return function()
 
 			return safeGet(a, 1), safeGet(b, 2), safeGet(c, 3), safeGet(d, 4), safeGet(e, 5), unpack(tuple)
 		end
-	end :: <A, B, C, D>(
-		World,
-		id: Entity,
-		CType<A>,
-		CType<B>?,
-		CType<C>?,
-		CType<D>?,
-		...CType
-	) -> (A, B, C, D)
+	end :: GetCall
 
 	function World:set<T>(id: Entity, ctype: CType<T>, value: T?)
 		assert(contains(id), "invalid entity")
@@ -581,9 +614,9 @@ return function()
 		end
 	end
 
-	function World:query(...: CType)
+	World.query = function(_, ...: CType)
 		return newQuery(components, archetypes, ...)
-	end
+	end :: QueryCall;
 
 	(World :: any)._getCurrentEntityVersion = function(_, id)
 		return World:current(id)
@@ -596,6 +629,10 @@ return function()
 		newest[key] = id
 
 		archetype.index[index] = id
+	end;
+
+	(World :: any)._getArchetype = function(_, ...: CType)
+		return getArchetype(components, archetypes, { ... })
 	end
 
 	return World :: World

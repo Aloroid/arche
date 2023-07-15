@@ -572,34 +572,102 @@ do
 	end)
 end
 
---[[
 do
 	TITLE("Getting Archetypes")
 
-	local worlds = {}
-	local A = {}
-	local B = {}
-	local C = {}
-	local D = {}
+	BENCH("Get new archetype 1 component", function()
+		local reg = arch.World()
+		local A = reg:component()
+		START()
 
-	for i = 1, N do
-		worlds[i] = arch.World()
-	end
-
-	BENCH("Get new archetype", function()
-		for i = 1, START(N) do
-			worlds[i]:_getArchetype()
-		end
+		reg:_getArchetype(A)
 	end)
 
-	local reg = arch.World()
-	reg:_getArchetype(A, B, C, D, E, F, G, H)
-	BENCH("Get existing archetype", function()
-		for i = 1, START(N) do
-			reg:_getArchetype(A, B, C, D, E, F, G, H)
-		end
+	BENCH("Get new archetype 2 components", function()
+		local reg = arch.World()
+		local A, B = reg:component(), reg:component()
+		START()
+
+		reg:_getArchetype(A, B)
 	end)
-end]]
+
+	BENCH("Get new archetype 4 components", function()
+		local reg = arch.World()
+		local A, B, C, D = reg:component(), reg:component(), reg:component(), reg:component()
+		START()
+
+		reg:_getArchetype(A, B, C, D)
+	end)
+
+	BENCH("Get new archetype 8 components", function()
+		local reg = arch.World()
+		local A, B, C, D = reg:component(), reg:component(), reg:component(), reg:component()
+		local E, F, G, H = reg:component(), reg:component(), reg:component(), reg:component()
+		START()
+
+		reg:_getArchetype(A, B, C, D, E, F, G, H)
+	end)
+
+	BENCH("Get new archetype 32 components", function()
+		local reg = arch.World()
+		local tuple = table.create(32)
+		for i = 1, 32 do
+			tuple[i] = reg:component()
+		end
+		START()
+
+		reg:_getArchetype(unpack(tuple))
+	end)
+
+	BENCH("Get existing archetype 1 component", function()
+		local reg = arch.World()
+		local A = reg:component()
+		reg:_getArchetype(A)
+		START()
+
+		reg:_getArchetype(A)
+	end)
+
+	BENCH("Get existing archetype 2 components", function()
+		local reg = arch.World()
+		local A, B = reg:component(), reg:component()
+		reg:_getArchetype(A, B)
+		START()
+
+		reg:_getArchetype(A, B)
+	end)
+
+	BENCH("Get existing archetype 4 components", function()
+		local reg = arch.World()
+		local A, B, C, D = reg:component(), reg:component(), reg:component(), reg:component()
+		reg:_getArchetype(A, B, C, D)
+		START()
+
+		reg:_getArchetype(A, B, C, D)
+	end)
+
+	BENCH("Get existing archetype 8 components", function()
+		local reg = arch.World()
+		local A, B, C, D = reg:component(), reg:component(), reg:component(), reg:component()
+		local E, F, G, H = reg:component(), reg:component(), reg:component(), reg:component()
+		reg:_getArchetype(A, B, C, D, E, F, G, H)
+		START()
+
+		reg:_getArchetype(A, B, C, D, E, F, G, H)
+	end)
+
+	BENCH("Get existing archetype 32 components", function()
+		local reg = arch.World()
+		local tuple = table.create(32)
+		for i = 1, 32 do
+			tuple[i] = reg:component()
+		end
+		reg:_getArchetype(unpack(tuple))
+		START()
+
+		reg:_getArchetype(unpack(tuple))
+	end)
+end
 
 --]]
 
@@ -889,6 +957,30 @@ do
 			end
 			return i
 		end
+
+		BENCH("Calculate compatible archetypes 1 component", function()
+			local view = reg:query(A)
+
+			view._update()
+		end)
+
+		BENCH("Calculate compatible archetypes 2 components", function()
+			local view = reg:query(A, B)
+
+			view._update()
+		end)
+
+		BENCH("Calculate compatible archetypes 4 components", function()
+			local view = reg:query(A, B, C, D)
+
+			view._update()
+		end)
+
+		BENCH("Calculate compatible archetypes 8 component", function()
+			local view = reg:query(A, B, C, D, E, F, G, H)
+
+			view._update()
+		end)
 
 		BENCH("View 1 component", function()
 			local view = reg:query(A)
