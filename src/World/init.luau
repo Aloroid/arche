@@ -83,10 +83,9 @@ export type World = {
 
 	query: QueryCall,
 
-	added: <T>(ctype: CType<T>) -> Signal<Entity, T>, -- when a new value is added
-	changing: <T>(ctype: CType<T>) -> Signal<Entity, T>, -- fires before value is updated, old value is readable
-	changed: <T>(ctype: CType<T>) -> Signal<Entity, T>, -- fires after changing, old value is gone
-	removing: (ctype: CType) -> Signal<Entity>, -- fires before a component is removed
+	added: <T>(World, ctype: CType<T>) -> Signal<Entity, T>, -- when a new value is added
+	changing: <T>(World, ctype: CType<T>) -> Signal<Entity, T>, -- fires before value is updated, old value is readable
+	removing: (World, ctype: CType) -> Signal<Entity>, -- fires before a component is removed
 }
 
 local createId = Id.createId
@@ -275,6 +274,90 @@ local function createSignal<T...>(): Signal<T...>
 	end
 
 	return self
+end
+
+local function createObserver(world: World, storage: Map<Entity, Archetype>, ...: CType)
+	local map = {}
+	local changed = {}
+	local connections = {}
+
+	local include = { ... }
+	local exclude = {}
+
+	local function addChanged(id: number)
+		if map[id] then return end
+		table.insert(changed, id)
+		map[id] = #changed
+	end
+
+	local function reconnect()
+		for _, ctype in include do
+			table.insert(connections, world:added(ctype):connect(addChanged))
+			table.insert(connections, world:changing(ctype):connect(addChanged))
+		end
+	end
+
+	local function disconnect()
+		for _, connection in connections do
+			connection:disconnect()
+		end
+	end
+
+	reconnect()
+
+	local mt = {}
+	local observer = setmetatable({}, mt)
+
+	function observer:each()
+		local thread = coroutine.wrap(function()
+			for _, id in changed do
+				local key = idKey(id)
+				local archetype = storage[key]
+
+				local hasNone = true
+				for _, exclude in exclude do
+					if archetype.values[exclude] then
+						hasNone = false
+						break
+					end
+				end
+
+				if hasNone then continue end
+
+				local tuple = table.clone(include)
+				local hasAll = true
+				for i, include in include do
+					if not archetype.values[include] then
+						hasAll = false
+						break
+					end
+					tuple[i] = archetype.values[include][key]
+				end
+
+				if hasAll then continue end
+
+				coroutine.yield(id, unpack(tuple))
+			end
+		end)
+
+		return function()
+			return thread()
+		end
+	end
+
+	function observer:disconnect()
+		disconnect()
+	end
+
+	function observer:reconnect()
+		reconnect()
+	end
+
+	function observer:exclude(...)
+		exclude = { ... }
+	end
+
+	return observer
 end
 
 local function newQuery(components: Components, storage: ArchetypeIndex, ...: CType)
