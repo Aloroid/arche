@@ -23,7 +23,6 @@ type Archetype = {
 }
 type ArchetypeIndex = {
 	archetype: Archetype?,
-	queue: Array<Archetype>?,
 	[number]: ArchetypeIndex,
 }
 
@@ -60,6 +59,10 @@ type QueryCall = <A, B, C, D, E, F, G, H>(
 	CType<H>?
 ) -> Query<A, B, C, D, E, F, G, H>
 
+type Signal<T...> = {
+	connect: (Signal<T...>, listener: (T...) -> ()) -> { disconnect: (_: any?) -> () },
+}
+
 export type World = {
 
 	create: (World) -> number,
@@ -79,6 +82,11 @@ export type World = {
 	clear: (World, ...CType) -> (),
 
 	query: QueryCall,
+
+	added: <T>(ctype: CType<T>) -> Signal<Entity, T>, -- when a new value is added
+	changing: <T>(ctype: CType<T>) -> Signal<Entity, T>, -- fires before value is updated, old value is readable
+	changed: <T>(ctype: CType<T>) -> Signal<Entity, T>, -- fires after changing, old value is gone
+	removing: (ctype: CType) -> Signal<Entity>, -- fires before a component is removed
 }
 
 local createId = Id.createId
@@ -241,6 +249,34 @@ local function swapArchetypeRemove(archetype: Archetype, newArchetype: Archetype
 	return newIndex
 end
 
+-- creates a basic signal
+local function createSignal<T...>(): Signal<T...>
+	local size = 0
+	local listeners = {}
+
+	local self = {}
+
+	function self:connect(listener: (T...) -> ())
+		size += 1
+		local n = size
+		listeners[n] = listener
+
+		return {
+			disconnect = function(_)
+				listeners[n] = nil
+			end,
+		}
+	end
+
+	(self :: any).fire = function(_, ...: T...)
+		for _, listener in listeners do
+			listener(...)
+		end
+	end
+
+	return self
+end
+
 local function newQuery(components: Components, storage: ArchetypeIndex, ...: CType)
 	assert(... ~= nil, "must include atleast 1 component")
 	local include = { ... }
@@ -259,7 +295,7 @@ local function newQuery(components: Components, storage: ArchetypeIndex, ...: CT
 	local function updateCompatibleArchetypes()
 		if #exclude == 0 and #include == 1 then
 			local a = include[1]
-			compatible = components[a]
+			compatible = table.clone(components[a])
 			max = table.create(#compatible)
 			for i, archetype in compatible do
 				max[i] = archetype.size
@@ -368,6 +404,10 @@ return function()
 
 	local World = {}
 	local default = getArchetype(components, archetypes, {})
+
+	local added: Map<CType, Signal<Entity, any>> = {}
+	local changing: Map<CType, Signal<Entity, any>> = {}
+	local removing: Map<CType, Signal<Entity>> = {}
 
 	local function contains(id: number)
 		local key = idKey(id)
@@ -485,9 +525,17 @@ return function()
 
 		if value == nil then
 			local newArchetype = getNewArchetypeRemove(components, archetypes, archetype, ctype)
+
+			if newArchetype == archetype then return end
+			local removingSignal = removing[ctype]
+			if removingSignal then removingSignal:fire(id) end
+
 			indexes[key] = swapArchetypeRemove(archetype, newArchetype, index, id)
 			entities[key] = newArchetype
 		elseif archetype.values[ctype] then
+			local changingSignal = changing[ctype]
+			if changingSignal then changingSignal:fire(id, value) end
+
 			archetype.values[ctype][index] = value
 		else
 			local newArchetype = getNewArchetypeAdd(components, archetypes, archetype, ctype)
@@ -495,6 +543,9 @@ return function()
 			indexes[key] = index
 			entities[key] = newArchetype
 			newArchetype.values[ctype][index] = value
+
+			local addedSignal = added[ctype]
+			if addedSignal then addedSignal:fire(id, value) end
 		end
 	end
 
@@ -513,8 +564,21 @@ return function()
 		entities[key] = newArchetype
 
 		local values = newArchetype.values
+
 		return function<T>(ctype: CType<T>, value: T)
+			local isChanging = archetype.values[ctype]
+
+			if isChanging then
+				local changingSignal = changing[ctype]
+				if changingSignal then changingSignal:fire(id, value) end
+			end
+
 			values[ctype][index] = value
+
+			if not isChanging then
+				local addedSignal = added[ctype]
+				if addedSignal then addedSignal:fire(id, value) end
+			end
 		end
 	end
 
@@ -527,6 +591,14 @@ return function()
 
 		local newArchetype = getNewArchetypeRemove(components, archetypes, archetype, ...)
 		if newArchetype == archetype then return end
+
+		for i = 1, select("#", ...) do
+			local ctype = select(i, ...)
+			if archetype.values[ctype] == nil then continue end
+			local removingSignal = removing[ctype]
+			if removingSignal then removingSignal:fire(id) end
+		end
+
 		indexes[key] = swapArchetypeRemove(archetype, newArchetype, index, id)
 		entities[key] = newArchetype
 	end
@@ -565,6 +637,12 @@ return function()
 
 		local archetype = entities[key]
 		local index = indexes[key]
+
+		-- fire the signals before removing values.
+		for ctype, values in archetype.values do
+			local removingSignal = removing[ctype]
+			if removingSignal then removingSignal:fire(id) end
+		end
 
 		for ctype, values in archetype.values do
 			values[index] = nil
@@ -612,6 +690,27 @@ return function()
 				end
 			end
 		end
+	end
+
+	function World:added<T>(ctype: CType<T>): Signal<Entity, T>
+		return added[ctype] or (function()
+			added[ctype] = createSignal()
+			return added[ctype]
+		end)()
+	end
+
+	function World:changing<T>(ctype: CType<T>): Signal<Entity, T>
+		return changing[ctype] or (function()
+			changing[ctype] = createSignal()
+			return changing[ctype]
+		end)()
+	end
+
+	function World:removing(ctype: CType): Signal<Entity>
+		return removing[ctype] or (function()
+			removing[ctype] = createSignal()
+			return removing[ctype]
+		end)()
 	end
 
 	World.query = function(_, ...: CType)
