@@ -88,7 +88,7 @@ export type World = {
 	removing: (World, ctype: CType) -> Signal<Entity>, -- fires before a component is removed
 }
 
-local createId = Id.createId
+local idCreate = Id.idCreate
 local idKey = Id.idKey
 local idKeyVersion = Id.idKeyVersion
 local idVersion = Id.idVersion
@@ -506,7 +506,7 @@ return function()
 			assert(size < MAX_KEY, "max entities reached")
 			size += 1
 			local key = size
-			local id = createId(key, INITIAL_ENTITY_VERSION)
+			local id = idCreate(key, INITIAL_ENTITY_VERSION)
 
 			entities[key] = default
 			default.size += 1
@@ -519,7 +519,7 @@ return function()
 			local key = free
 			local oldNewest = newest[key]
 			local version = idVersion(oldNewest)
-			local id = createId(key, version)
+			local id = idCreate(key, version)
 
 			free = indexes[free]
 
@@ -538,7 +538,7 @@ return function()
 		size += 1
 
 		local key = size
-		local id = createId(key, 0)
+		local id = idCreate(key, 0)
 
 		entities[key] = default
 		default.size += 1
@@ -739,7 +739,7 @@ return function()
 			return
 		end
 
-		newest[key] = createId(key, version + 1)
+		newest[key] = idCreate(key, version + 1)
 		indexes[key] = free
 		free = key
 	end
@@ -805,7 +805,7 @@ return function()
 	end;
 
 	(World :: any)._setEntityVersion = function(_, key, version)
-		local id = createId(key, version)
+		local id = idCreate(key, version)
 		local archetype = entities[key]
 		local index = indexes[key]
 		newest[key] = id

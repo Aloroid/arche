@@ -9,6 +9,6 @@ local arch = {
 };
 
 -- debug functions
-(arch :: any).id = Id.createId
+(arch :: any).id = Id.idCreate
 
 return arch

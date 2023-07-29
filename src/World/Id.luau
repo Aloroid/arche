@@ -12,7 +12,7 @@ local ID_RSHIFT = 1 / ID_LSHIFT
 local ID_MAX_KEY = ID_MASK_KEY
 local ID_MAX_VERSION = ID_MASK_VER * ID_RSHIFT
 
-local function createId(key: number, version: number): number
+local function idCreate(key: number, version: number): number
 	--assert(Key <= ID_MAX_Key)
 	--assert(ver <= ID_MAX_VERSION)
 	return version * ID_LSHIFT + key
@@ -46,7 +46,7 @@ return {
 	ID_MAX_KEY = ID_MAX_KEY,
 	ID_MAX_VERSION = ID_MAX_VERSION,
 
-	createId = createId,
+	idCreate = idCreate,
 	idKey = idKey,
 	idKeyVersion = idKeyVersion,
 	idVersion = idVersion,
