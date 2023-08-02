@@ -6,7 +6,7 @@ type Map<T, U> = { [T]: U }
 type Entity<T = unknown> = number -- entities are components
 type EntityKey = number
 type EntityVersion = number
-type CType<T = unknown> = number
+type CType<T = unknown> = T
 type Index = number
 
 type Components = Map<CType, Array<Archetype>>
@@ -27,10 +27,10 @@ type ArchetypeIndex = {
 }
 
 --FIXME: Need Roblox to implement a Partial type instead so this can be shortened
-type Query<A, B, C, D, E, F, G, H> = {
+type Query<T...> = {
 
-	exclude: (Query<A, B, C, D, E, F, G, H>, ...CType) -> Query<A, B, C, D, E, F, G, H>,
-	each: (Query<A, B, C, D, E, F, G, H>) -> () -> (A, B, C, D, E, F, G, H),
+	exclude: (Query<T...>, ...unknown) -> Query<T...>,
+	each: (Query<T...>) -> () -> T...,
 }
 
 type GetCall = <A, B, C, D, E, F, G, H>(
@@ -66,37 +66,73 @@ type Signal<T...> = {
 export type World = {
 
 	create: (World) -> number,
-	component: <T>(World, constructor: (() -> T)?) -> CType<T>,
+	component: <T>(World, constructor: (() -> T)?) -> T,
 	contains: (World, id: Entity) -> (boolean, boolean),
 	current: (World, id: Entity) -> number,
 
-	get: GetCall,
-	tryGet: <T>(World, id: Entity, component: CType<T>) -> T?,
-	has: (World, id: Entity, ...CType) -> boolean,
+	get: <T...>(World, id: Entity, T...) -> T...,
+	tryGet: <T>(World, id: Entity, component: T) -> T?,
+	has: <T...>(World, id: Entity, T...) -> boolean,
 
-	set: <T>(World, id: Entity, component: CType<T>, value: T?) -> T,
-	addArchetype: (World, id: Entity, ...CType) -> <T>(ctype: CType<T>, value: T) -> (),
-	remove: (World, id: Entity, ...CType) -> (),
+	set: <T>(World, id: Entity, component: T, value: T?) -> T,
+	addArchetype: (World, id: Entity, ...unknown) -> <T>(ctype: T, value: T) -> (),
+	remove: <T...>(World, id: Entity, T...) -> (),
 
 	destroy: (World, id: Entity) -> (),
-	clear: (World, ...CType) -> (),
+	clear: <T...>(World, T...) -> (),
 
-	query: QueryCall,
+	query: <T...>(World, T...) -> Query<T...>,
 
-	added: <T>(World, ctype: CType<T>) -> Signal<Entity, T>, -- when a new value is added
-	changing: <T>(World, ctype: CType<T>) -> Signal<Entity, T>, -- fires before value is updated, old value is readable
-	removing: (World, ctype: CType) -> Signal<Entity>, -- fires before a component is removed
+	added: <T>(World, ctype: T) -> Signal<Entity, T>, -- when a new value is added
+	changing: <T>(World, ctype: T) -> Signal<Entity, T>, -- fires before value is updated, old value is readable
+	removing: (World, ctype: unknown) -> Signal<Entity>, -- fires before a component is removed
 }
 
-local idCreate = Id.idCreate
-local idKey = Id.idKey
-local idKeyVersion = Id.idKeyVersion
-local idVersion = Id.idVersion
+local INITIAL_ENTITY_VERSION = 1
+local MAX_ENTITIES = 0x000F_FFFF
 
-local INITIAL_ENTITY_VERSION = Id.INITIAL_ENTITY_VERSION
-local INVALID_ENTITY = Id.ID_INVALID_KEY
-local MAX_VERSION = Id.ID_MAX_VERSION
-local MAX_KEY = Id.ID_MAX_KEY
+local INVALID_ENTITY = 0
+local ID_MAX_INT = 2 ^ 53 - 1
+local ID_MASK_KEY = MAX_ENTITIES
+local ID_MASK_VER = ID_MAX_INT - ID_MASK_KEY
+
+local ID_LSHIFT = ID_MASK_KEY + 1
+local ID_RSHIFT = 1 / ID_LSHIFT
+
+local MAX_KEY = ID_MASK_KEY
+local MAX_VERSION = ID_MASK_VER * ID_RSHIFT
+
+local function idCreate(key: number, version: number): number
+	--assert(Key <= ID_MAX_Key)
+	--assert(ver <= ID_MAX_VERSION)
+	return version * ID_LSHIFT + key
+end
+
+local function idKey(ID: number): number
+	return bit32.band(ID, ID_MASK_KEY)
+end
+
+local function idKeyVersion(ID: number): (number, number)
+	local key = idKey(ID)
+	local ver = (ID - key) * ID_RSHIFT
+	return key, ver
+end
+
+local function idVersion(ID: number): number
+	return (ID - idKey(ID)) * ID_RSHIFT
+end
+
+local function idSwapKey(ID: number, key: number): number
+	return ID - idKey(ID) + key
+end
+
+-- returns if the given components include the key
+local function hasAny(components: { CType }, key: CType)
+	for _, ctype in components do
+		if ctype == key then return true end
+	end
+	return false
+end
 
 -- inlines better haha
 local function setValuesAndComponents(sorted: Array<CType>, components: Components, archetype)
@@ -303,9 +339,15 @@ local function createObserver(world: World, storage: Map<Entity, Archetype>, ...
 		end
 	end
 
+	local function clear()
+		table.clear(changed)
+		table.clear(map)
+	end
+
 	reconnect()
 
 	local mt = {}
+	local persist = false
 	local observer = setmetatable({}, mt)
 
 	function observer:each()
@@ -338,11 +380,21 @@ local function createObserver(world: World, storage: Map<Entity, Archetype>, ...
 
 				coroutine.yield(id, unpack(tuple))
 			end
+			if persist == false then clear() end
 		end)
 
 		return function()
 			return thread()
 		end
+	end
+
+	function observer:clear()
+		clear()
+	end
+
+	function observer:persist()
+		persist = true
+		return self
 	end
 
 	function observer:disconnect()
@@ -354,13 +406,17 @@ local function createObserver(world: World, storage: Map<Entity, Archetype>, ...
 	end
 
 	function observer:exclude(...)
+		for i = 1, select("#", ...) do
+			if hasAny(include, select(i, ...)) then error(`component #{i} is already included in the query`) end
+		end
 		exclude = { ... }
+		return self
 	end
 
 	return observer
 end
 
-local function newQuery(components: Components, storage: ArchetypeIndex, ...: CType)
+local function newQuery(components: Components, storage: ArchetypeIndex, ...)
 	assert(... ~= nil, "must include atleast 1 component")
 	local include = { ... }
 
@@ -378,7 +434,7 @@ local function newQuery(components: Components, storage: ArchetypeIndex, ...: CT
 	local function updateCompatibleArchetypes()
 		if #exclude == 0 and #include == 1 then
 			local a = include[1]
-			compatible = table.clone(components[a])
+			compatible = components[a]
 			max = table.create(#compatible)
 			for i, archetype in compatible do
 				max[i] = archetype.size
@@ -403,6 +459,12 @@ local function newQuery(components: Components, storage: ArchetypeIndex, ...: CT
 		else
 			max = {}
 			compatible = {}
+
+			local smallest = include[1]
+			for _, ctype in include do
+				if #components[ctype] < #components[smallest] then smallest = ctype end
+			end
+
 			for _, archetype in components[include[1]] do
 				-- exclude
 				local bad = false
@@ -433,7 +495,7 @@ local function newQuery(components: Components, storage: ArchetypeIndex, ...: CT
 
 	function query:exclude(...: CType)
 		for i = 1, select("#", ...) do
-			if table.find(include, select(i, ...)) then error(`component #{i} is already included, cannot exclude`) end
+			if hasAny(include, select(i, ...)) then error(`component #{i} is already included in the query`) end
 		end
 		exclude = { ... }
 		return self
@@ -447,6 +509,7 @@ local function newQuery(components: Components, storage: ArchetypeIndex, ...: CT
 		local thread = coroutine.wrap(function()
 			for i, archetype: Archetype in compatible do
 				local maximum = max[i]
+				if maximum == nil then break end
 				for index in archetype.values[a] do
 					if index > maximum then break end
 					local id = archetype.index[index]
@@ -497,7 +560,7 @@ return function()
 		return entities[key] and newest[key] == id, not not ctypes[key]
 	end
 
-	local function get<T>(index: Index, values: Map<CType, Map<Index, T>>, ctype: CType<T>)
+	local function get<T>(index: Index, values: Map<CType, Map<Index, T>>, ctype: T)
 		return values[ctype] and values[ctype][index]
 	end
 
@@ -533,7 +596,7 @@ return function()
 		end
 	end
 
-	function World:component<T>(constructor: (() -> T)?): CType<T>
+	function World:component<T>(constructor: (() -> T)?): T
 		assert(size < MAX_KEY, "max entities reached")
 		size += 1
 
@@ -561,8 +624,7 @@ return function()
 		return idVersion(newest)
 	end
 
-	--FIXME: Necessary to type properly.
-	World.get = function(self, id: Entity, ...: CType)
+	World.get = function(self, id: Entity, ...: any)
 		assert(contains(id), "invalid entity")
 		local key = idKey(id)
 
@@ -595,9 +657,9 @@ return function()
 
 			return safeGet(a, 1), safeGet(b, 2), safeGet(c, 3), safeGet(d, 4), safeGet(e, 5), unpack(tuple)
 		end
-	end :: GetCall
+	end :: <T...>(World, id: Entity, T...) -> T...
 
-	function World:set<T>(id: Entity, ctype: CType<T>, value: T?)
+	function World:set<T>(id: Entity, ctype: T, value: T?)
 		assert(contains(id), "invalid entity")
 		--assert(value ~= nil, "Value must not be nil")
 
@@ -632,7 +694,7 @@ return function()
 		end
 	end
 
-	function World:addArchetype(id: Entity, ...: CType)
+	function World:addArchetype(id: Entity, ...: unknown)
 		assert(contains(id), "invalid entity")
 		--assert(value ~= nil, "Value must not be nil")
 
@@ -648,7 +710,7 @@ return function()
 
 		local values = newArchetype.values
 
-		return function<T>(ctype: CType<T>, value: T)
+		return function<T>(ctype: T, value: T)
 			local isChanging = archetype.values[ctype]
 
 			if isChanging then
@@ -665,7 +727,7 @@ return function()
 		end
 	end
 
-	function World:remove(id: Entity, ...: CType)
+	function World:remove(id: Entity, ...: unknown)
 		assert(contains(id), "invalid entity")
 		local key = idKey(id)
 
@@ -686,7 +748,7 @@ return function()
 		entities[key] = newArchetype
 	end
 
-	function World:has(id: Entity, ...: CType)
+	function World:has(id: Entity, ...: unknown)
 		if type(id) ~= "number" then return false end
 		if contains(id) == false then return false end
 
@@ -703,7 +765,7 @@ return function()
 		return true
 	end
 
-	function World:tryGet<T>(id: Entity, ctype: CType<T>): T?
+	function World:tryGet<T>(id: Entity, ctype: T): T?
 		assert(contains(id), "invalid entity")
 		local key = idKey(id)
 
@@ -745,7 +807,7 @@ return function()
 	end
 
 	-- clears all components
-	function World:clear(...: CType)
+	function World:clear(...: unknown)
 		local a = ...
 
 		if a == nil then
@@ -775,30 +837,34 @@ return function()
 		end
 	end
 
-	function World:added<T>(ctype: CType<T>): Signal<Entity, T>
+	function World:added<T>(ctype: T): Signal<Entity, T>
 		return added[ctype] or (function()
 			added[ctype] = createSignal()
 			return added[ctype]
 		end)()
 	end
 
-	function World:changing<T>(ctype: CType<T>): Signal<Entity, T>
+	function World:changing<T>(ctype: T): Signal<Entity, T>
 		return changing[ctype] or (function()
 			changing[ctype] = createSignal()
 			return changing[ctype]
 		end)()
 	end
 
-	function World:removing(ctype: CType): Signal<Entity>
+	function World:removing(ctype: unknown): Signal<Entity>
 		return removing[ctype] or (function()
 			removing[ctype] = createSignal()
 			return removing[ctype]
 		end)()
 	end
 
-	World.query = function(_, ...: CType)
+	function World:query<T...>(...: T...)
 		return newQuery(components, archetypes, ...)
-	end :: QueryCall;
+	end
+
+	World.query = function(_, ...)
+		return newQuery(components, archetypes, ...)
+	end :: <T...>(World, T...) -> Query<T...>;
 
 	(World :: any)._getCurrentEntityVersion = function(_, id)
 		return World:current(id)
@@ -813,9 +879,9 @@ return function()
 		archetype.index[index] = id
 	end;
 
-	(World :: any)._getArchetype = function(_, ...: CType)
+	(World :: any)._getArchetype = function(_, ...: unknown)
 		return getArchetype(components, archetypes, { ... })
 	end
 
-	return World :: World
+	return World
 end

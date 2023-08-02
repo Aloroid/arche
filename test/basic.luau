@@ -9,7 +9,7 @@ local id = reg:create()
 
 print("created id", id)
 reg:set(id, A, true)
-print(reg:get(id, A))
+print(reg:get(id, A, B, C))
 reg:set(id, B, true)
 reg:set(id, C, true)
 
